@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import HTMLResponse, JSONResponse
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -11,9 +12,10 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, FileMessageCon
 
 app = FastAPI()
 
-# ดึงค่า Config จาก Environment Variables บน Render
+# Configs & Variables
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
+LIFF_ID = os.getenv("LIFF_ID", "2011484465-jzxyGhG1")
 
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -21,7 +23,6 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 MASTER_EXCEL_FILE = "latest_pending.xlsx"
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AEQSsiLUbr5p6HYh36WNGF9TkUDVeW2xN-vDvDkjy1k/export?format=csv&gid=0"
 
-# นิยาม 6 เขตรับผิดชอบและ Keyword สำหรับค้นหา
 AREA_KEYWORDS = {
     '1. พระโขนง / บางจาก (B113)': ['B113', 'พระโขนง', 'บางจาก'],
     '2. คลองเตย (B113)': ['คลองเตย'],
@@ -31,39 +32,41 @@ AREA_KEYWORDS = {
     '6. วังทองหลาง / พลับพลา': ['วังทองหลาง', 'พลับพลา']
 }
 
-def create_wifi_flex_message():
+def get_current_df():
+    """ฟังก์ชันดึงข้อมูล Dataframe จาก Google Sheet หรือ Excel สำรอง"""
     df = None
     data_source = ""
-
-    # 1. พยายามอ่านข้อมูลจาก Google Sheet
     try:
         df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
         data_source = "Google Sheet"
     except Exception as e:
         print(f"Error fetching Google Sheet: {e}")
 
-    # 2. หากอ่าน Google Sheet ไม่สำเร็จ ให้ใช้อ่านจากไฟล์ Excel สำรอง
     if df is None or df.empty:
         if os.path.exists(MASTER_EXCEL_FILE):
             try:
                 df = pd.read_excel(MASTER_EXCEL_FILE)
                 data_source = "Local Excel"
             except Exception as e:
-                return TextMessage(text=f"❌ อ่านไฟล์สำรองไม่สำเร็จ: {str(e)}")
+                print(f"Error reading Excel: {e}")
+                return None, "Error"
         else:
-            return TextMessage(text="⚠️ ดึง Google Sheet ไม่สำเร็จ และไม่มีไฟล์ Excel สำรอง")
+            return None, "No Data"
+
+    return df.fillna("").astype(str), data_source
+
+def create_wifi_flex_message():
+    df_clean, data_source = get_current_df()
+
+    if df_clean is None:
+        return TextMessage(text="⚠️ ไม่สามารถดึงข้อมูลงานค้างได้ในขณะนี้")
 
     try:
-        # แทนที่ค่าว่าง (NaN) ด้วยข้อความว่าง แล้วแปลงทุกช่องเป็น String
-        df_clean = df.fillna("").astype(str)
         full_row_text = df_clean.apply(lambda row: ' '.join(row), axis=1)
-
-        # แยกสแกนแถวที่มีคำว่า Femto และไม่มีคำว่า Femto
         is_femto_mask = full_row_text.str.contains('femto', case=False, na=False)
 
         wifi_total = 0
         femto_total = 0
-
         wifi_rows_json = []
         femto_rows_json = []
 
@@ -71,67 +74,32 @@ def create_wifi_flex_message():
             pattern = '|'.join(keywords)
             area_matched = full_row_text.str.contains(pattern, case=False, na=False)
 
-            # นับงาน WiFi (ตรงเขต และ ไม่มี femto)
             count_wifi = int((area_matched & ~is_femto_mask).sum())
             wifi_total += count_wifi
 
-            # นับงาน Femto (ตรงเขต และ มี femto)
             count_femto = int((area_matched & is_femto_mask).sum())
             femto_total += count_femto
 
-            # แถวแสดงผล WiFi
             wifi_rows_json.append({
-                "type": "box",
-                "layout": "horizontal",
+                "type": "box", "layout": "horizontal",
                 "contents": [
-                    {
-                        "type": "text",
-                        "text": area_name,
-                        "size": "xs",
-                        "color": "#DDDDDD",
-                        "flex": 4,
-                        "wrap": True
-                    },
-                    {
-                        "type": "text",
-                        "text": f"{count_wifi} งาน",
-                        "size": "xs",
-                        "color": "#FFD700" if count_wifi > 0 else "#888888",
-                        "weight": "bold",
-                        "align": "end",
-                        "flex": 2
-                    }
+                    {"type": "text", "text": area_name, "size": "xs", "color": "#DDDDDD", "flex": 4, "wrap": True},
+                    {"type": "text", "text": f"{count_wifi} งาน", "size": "xs", "color": "#FFD700" if count_wifi > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
                 ],
                 "margin": "sm"
             })
 
-            # แถวแสดงผล Femto
             femto_rows_json.append({
-                "type": "box",
-                "layout": "horizontal",
+                "type": "box", "layout": "horizontal",
                 "contents": [
-                    {
-                        "type": "text",
-                        "text": area_name,
-                        "size": "xs",
-                        "color": "#DDDDDD",
-                        "flex": 4,
-                        "wrap": True
-                    },
-                    {
-                        "type": "text",
-                        "text": f"{count_femto} งาน",
-                        "size": "xs",
-                        "color": "#00E676" if count_femto > 0 else "#888888",
-                        "weight": "bold",
-                        "align": "end",
-                        "flex": 2
-                    }
+                    {"type": "text", "text": area_name, "size": "xs", "color": "#DDDDDD", "flex": 4, "wrap": True},
+                    {"type": "text", "text": f"{count_femto} งาน", "size": "xs", "color": "#00E676" if count_femto > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
                 ],
                 "margin": "sm"
             })
 
         grand_total = wifi_total + femto_total
+        liff_url = f"https://liff.line.me/{LIFF_ID}"
 
         flex_json = {
             "type": "bubble",
@@ -143,33 +111,13 @@ def create_wifi_flex_message():
                 "paddingAll": "lg",
                 "contents": [
                     {
-                        "type": "box",
-                        "layout": "horizontal",
+                        "type": "box", "layout": "horizontal",
                         "contents": [
-                            {
-                                "type": "text",
-                                "text": "📡 TRUE WIFI & FEMTO REPORT",
-                                "weight": "bold",
-                                "color": "#E50914",
-                                "size": "xs"
-                            },
-                            {
-                                "type": "text",
-                                "text": f"Source: {data_source}",
-                                "size": "xs",
-                                "color": "#888888",
-                                "align": "end"
-                            }
+                            {"type": "text", "text": "📡 TRUE WIFI & FEMTO REPORT", "weight": "bold", "color": "#E50914", "size": "xs"},
+                            {"type": "text", "text": f"Source: {data_source}", "size": "xs", "color": "#888888", "align": "end"}
                         ]
                     },
-                    {
-                        "type": "text",
-                        "text": "สรุปงานค้างซ่อมประจำเขต",
-                        "weight": "bold",
-                        "size": "xl",
-                        "color": "#FFFFFF",
-                        "margin": "sm"
-                    }
+                    {"type": "text", "text": "สรุปงานค้างซ่อมประจำเขต", "weight": "bold", "size": "xl", "color": "#FFFFFF", "margin": "sm"}
                 ]
             },
             "body": {
@@ -178,80 +126,31 @@ def create_wifi_flex_message():
                 "backgroundColor": "#242424",
                 "paddingAll": "lg",
                 "contents": [
-                    # SECTION 1: TRUE WIFI
+                    {"type": "text", "text": "📶 True WiFi", "weight": "bold", "color": "#FFD700", "size": "sm"},
+                    {"type": "box", "layout": "vertical", "margin": "sm", "contents": wifi_rows_json},
                     {
-                        "type": "text",
-                        "text": "📶 True WiFi",
-                        "weight": "bold",
-                        "color": "#FFD700",
-                        "size": "sm"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "margin": "sm",
-                        "contents": wifi_rows_json
-                    },
-                    {
-                        "type": "box",
-                        "layout": "horizontal",
-                        "margin": "md",
+                        "type": "box", "layout": "horizontal", "margin": "md",
                         "contents": [
                             {"type": "text", "text": "รวม WiFi", "size": "xs", "color": "#AAAAAA", "flex": 4},
                             {"type": "text", "text": f"{wifi_total} งาน", "size": "xs", "color": "#FFD700", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
                     {"type": "separator", "margin": "lg", "color": "#444444"},
-
-                    # SECTION 2: FEMTO
+                    {"type": "text", "text": "📱 Femto Cell", "weight": "bold", "color": "#00E676", "size": "sm", "margin": "lg"},
+                    {"type": "box", "layout": "vertical", "margin": "sm", "contents": femto_rows_json},
                     {
-                        "type": "text",
-                        "text": "📱 Femto Cell",
-                        "weight": "bold",
-                        "color": "#00E676",
-                        "size": "sm",
-                        "margin": "lg"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "margin": "sm",
-                        "contents": femto_rows_json
-                    },
-                    {
-                        "type": "box",
-                        "layout": "horizontal",
-                        "margin": "md",
+                        "type": "box", "layout": "horizontal", "margin": "md",
                         "contents": [
                             {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
                             {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
                     {"type": "separator", "margin": "lg", "color": "#444444"},
-
-                    # GRAND TOTAL
                     {
-                        "type": "box",
-                        "layout": "horizontal",
-                        "margin": "lg",
+                        "type": "box", "layout": "horizontal", "margin": "lg",
                         "contents": [
-                            {
-                                "type": "text",
-                                "text": "🔴 งานค้างรวมทั้งหมด",
-                                "weight": "bold",
-                                "color": "#FFFFFF",
-                                "size": "sm",
-                                "flex": 4
-                            },
-                            {
-                                "type": "text",
-                                "text": f"{grand_total} งาน",
-                                "weight": "bold",
-                                "color": "#FF3B30",
-                                "size": "md",
-                                "align": "end",
-                                "flex": 2
-                            }
+                            {"type": "text", "text": "🔴 งานค้างรวมทั้งหมด", "weight": "bold", "color": "#FFFFFF", "size": "sm", "flex": 4},
+                            {"type": "text", "text": f"{grand_total} งาน", "weight": "bold", "color": "#FF3B30", "size": "md", "align": "end", "flex": 2}
                         ]
                     }
                 ]
@@ -261,7 +160,19 @@ def create_wifi_flex_message():
                 "layout": "vertical",
                 "backgroundColor": "#1A1A1A",
                 "paddingAll": "md",
+                "spacing": "sm",
                 "contents": [
+                    {
+                        "type": "button",
+                        "action": {
+                            "type": "uri",
+                            "label": "🔍 ดูรายละเอียดงานค้างทั้งหมด",
+                            "uri": liff_url
+                        },
+                        "style": "primary",
+                        "color": "#00E676",
+                        "height": "sm"
+                    },
                     {
                         "type": "button",
                         "action": {
@@ -269,8 +180,8 @@ def create_wifi_flex_message():
                             "label": "🔄 อัปเดตข้อมูลสด (wifi)",
                             "text": "wifi"
                         },
-                        "style": "primary",
-                        "color": "#E50914",
+                        "style": "secondary",
+                        "color": "#444444",
                         "height": "sm"
                     }
                 ]
@@ -285,9 +196,153 @@ def create_wifi_flex_message():
     except Exception as e:
         return TextMessage(text=f"❌ เกิดข้อผิดพลาดขณะสร้าง Flex Message: {str(e)}")
 
+# --- Endpoints ---
+
 @app.get("/")
 def root_check():
     return {"status": "True WiFi Bot is running"}
+
+@app.get("/api/pending_data")
+def get_pending_data_api():
+    df_clean, source = get_current_df()
+    if df_clean is None:
+        return JSONResponse(status_code=500, content={"error": "Cannot load data"})
+    
+    records = df_clean.to_dict(orient="records")
+    return {"source": source, "total": len(records), "data": records}
+
+@app.get("/liff", response_class=HTMLResponse)
+def liff_page():
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="th">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>รายละเอียดงานค้าง WiFi/Femto</title>
+        <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+        <style>
+            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+            body {{ background-color: #121212; color: #E0E0E0; padding: 12px; font-size: 14px; }}
+            .header {{ position: sticky; top: 0; background-color: #121212; padding-bottom: 10px; z-index: 100; }}
+            .title {{ color: #00E676; font-size: 16px; font-weight: bold; margin-bottom: 8px; text-align: center; }}
+            .search-box {{ width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 14px; outline: none; }}
+            .search-box:focus {{ border-color: #00E676; }}
+            .count-info {{ margin: 8px 0; font-size: 12px; color: #888; text-align: right; }}
+            .card {{ background-color: #1E1E1E; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #00E676; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }}
+            .card.femto {{ border-left-color: #FFD700; }}
+            .card-row {{ display: flex; margin-bottom: 4px; line-height: 1.4; }}
+            .card-label {{ color: #888; width: 90px; flex-shrink: 0; font-size: 12px; }}
+            .card-val {{ color: #FFF; word-break: break-all; flex-grow: 1; font-size: 13px; }}
+            .card-val.highlight {{ color: #00E676; font-weight: bold; }}
+            .btn-copy {{ display: block; width: 100%; margin-top: 8px; padding: 6px; background-color: #2C2C2C; color: #BBB; border: none; border-radius: 4px; text-align: center; font-size: 12px; cursor: pointer; }}
+            .btn-copy:active {{ background-color: #00E676; color: #000; }}
+            .loading {{ text-align: center; padding: 40px; color: #888; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="title">📋 รายละเอียดงานค้างทั้งหมด</div>
+            <input type="text" id="searchInput" class="search-box" placeholder="🔍 ค้นหา (เช่น เลข Ticket, IP, สาขา...)" oninput="filterData()">
+            <div class="count-info" id="countInfo">กำลังโหลดข้อมูล...</div>
+        </div>
+
+        <div id="dataList" class="loading">⏳ กำลังดึงข้อมูลสดจากระบบ...</div>
+
+        <script>
+            let rawData = [];
+
+            async function initLIFF() {{
+                try {{
+                    await liff.init({{ liffId: "{LIFF_ID}" }});
+                }} catch (err) {{
+                    console.log("LIFF Init Error:", err);
+                }}
+                fetchData();
+            }}
+
+            async function fetchData() {{
+                try {{
+                    const res = await fetch('/api/pending_data');
+                    const json = await res.json();
+                    rawData = json.data || [];
+                    renderCards(rawData);
+                }} catch (e) {{
+                    document.getElementById('dataList').innerHTML = '<div style="color:#FF5252; text-align:center;">❌ ไม่สามารถโหลดข้อมูลได้</div>';
+                }}
+            }}
+
+            function renderCards(list) {{
+                const container = document.getElementById('dataList');
+                document.getElementById('countInfo').innerText = `แสดง ${{list.length}} จากทั้งหมด ${{rawData.length}} งาน`;
+
+                if (list.length === 0) {{
+                    container.innerHTML = '<div class="loading">ไม่พบข้อมูลที่ค้นหา</div>';
+                    return;
+                }}
+
+                let html = '';
+                list.forEach((item, idx) => {{
+                    let textSummary = '';
+                    let keys = Object.keys(item);
+                    let isFemto = JSON.stringify(item).toLowerCase().includes('femto');
+                    
+                    html += `<div class="card ${{isFemto ? 'femto' : ''}}">`;
+                    keys.forEach(k => {{
+                        let val = item[k];
+                        if (val && val.trim() !== '') {{
+                            textSummary += `${{k}}: ${{val}}\\n`;
+                            html += `
+                                <div class="card-row">
+                                    <div class="card-label">${{k}}</div>
+                                    <div class="card-val ${{k.toLowerCase().includes('ticket') || k.toLowerCase().includes('ip') ? 'highlight' : ''}}">${{val}}</div>
+                                </div>
+                            `;
+                        }}
+                    }});
+                    
+                    let safeText = encodeURIComponent(textSummary.trim());
+                    html += `<button class="btn-copy" onclick="copyToClipboard('${{safeText}}', this)">📋 คัดลอกรายละเอียด</button>`;
+                    html += `</div>`;
+                }});
+
+                container.innerHTML = html;
+            }}
+
+            function filterData() {{
+                const query = document.getElementById('searchInput').value.toLowerCase().trim();
+                if (!query) {{
+                    renderCards(rawData);
+                    return;
+                }}
+
+                const filtered = rawData.filter(item => {{
+                    return Object.values(item).some(val => String(val).toLowerCase().includes(query));
+                }});
+                renderCards(filtered);
+            }}
+
+            function copyToClipboard(encodedText, btn) {{
+                const text = decodeURIComponent(encodedText);
+                navigator.clipboard.writeText(text).then(() => {{
+                    const origText = btn.innerText;
+                    btn.innerText = '✅ คัดลอกเรียบร้อย!';
+                    btn.style.backgroundColor = '#00E676';
+                    btn.style.color = '#000';
+                    setTimeout(() => {{
+                        btn.innerText = origText;
+                        btn.style.backgroundColor = '#2C2C2C';
+                        btn.style.color = '#BBB';
+                    }}, 1500);
+                }});
+            }}
+
+            window.onload = initLIFF;
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.post("/webhook")
 async def callback(request: Request):
