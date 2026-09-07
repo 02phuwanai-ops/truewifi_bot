@@ -47,7 +47,7 @@ AREA_CONFIG = [
         "id": "area4", 
         "name": "4. ห้วยขวาง", 
         "keywords": [
-            # 🎯 เพิ่ม Circuit ID จากรูปโดยตรง (ดึงครบแน่นอน)
+            # 🎯 เพิ่ม Circuit ID จากรูปโดยตรง
             'I04964B', 'I80780B', 
             
             # Keywords สถานที่เดิม
@@ -56,7 +56,6 @@ AREA_CONFIG = [
             'พระราม 9', 'พระราม๙', 'พระราม9', 
             'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม'
         ],
-        # ตัดเฉพาะเขตอื่นที่ไม่เกี่ยวจริงๆ ออก
         "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน'] 
     },
     {
@@ -152,7 +151,6 @@ def get_processed_data():
                 if excludes:
                     exclude_regex = '|'.join([re.escape(ex) for ex in excludes])
                     if re.search(exclude_regex, row_text, re.IGNORECASE):
-                        # ถ้าเจอคำต้องห้าม เช่น ดินแดง, พญาไท, Fortune -> ข้ามไปทันที
                         continue
 
                 extracted_ip = extract_ip(row_text)
@@ -245,7 +243,7 @@ def create_wifi_flex_message():
                         "type": "box", "layout": "horizontal", "margin": "sm",
                         "contents": [
                             {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
+                            {"type": "text", "text": f"{count_femto if 'count_femto' in locals() else femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
                     {"type": "separator", "margin": "md", "color": "#444444"},
@@ -360,6 +358,9 @@ def liff_page():
             .badge-wifi {{ background-color: rgba(255, 215, 0, 0.15); color: #FFD700; border: 1px solid #FFD700; }}
             .badge-femto {{ background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid #00E676; }}
 
+            .clickable {{ cursor: pointer; transition: opacity 0.2s; }}
+            .clickable:active {{ opacity: 0.6; }}
+
             .subject-box {{ background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 12px; color: #E2E2E2; margin-bottom: 8px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }}
             .subject-label {{ color: #888; font-size: 10px; font-weight: bold; display: block; margin-bottom: 2px; }}
 
@@ -454,20 +455,26 @@ def liff_page():
                 let copyText = `TICKETID: ${{ticket}}\\nIP: ${{ip}}\\nSUBJECT: ${{subject}}\\nSTATUS: ${{status}}\\nSEVERITY: ${{severity}}\\nCREATIONDATE: ${{creationDate}}`;
                 let safeCopyText = encodeURIComponent(copyText);
 
+                let safeTicket = encodeURIComponent(ticket);
+                let safeSubject = encodeURIComponent(subject);
+                let safeIp = encodeURIComponent(ip);
+
                 return `
                 <div class="card">
                     <div class="card-header">
-                        <div class="ticket-badge">🎫 ${{ticket}}</div>
+                        <div class="ticket-badge clickable" onclick="copySingleValue('${{safeTicket}}', 'Ticket ID', this)" title="แตะเพื่อคัดลอก Ticket ID">
+                            🎫 ${{ticket}}
+                        </div>
                         <span class="type-badge ${{isFemto ? 'badge-femto' : 'badge-wifi'}}">${{isFemto ? 'Femto' : 'WiFi'}}</span>
                     </div>
 
-                    <div class="subject-box">
-                        <span class="subject-label">SUBJECT</span>
+                    <div class="subject-box clickable" onclick="copySingleValue('${{safeSubject}}', 'Subject', this)" title="แตะเพื่อคัดลอก Subject">
+                        <span class="subject-label">SUBJECT (แตะเพื่อคัดลอก)</span>
                         ${{subject}}
                     </div>
 
                     <div class="grid-container">
-                        <div class="grid-item">
+                        <div class="grid-item clickable" onclick="copySingleValue('${{safeIp}}', 'IP Address', this)" title="แตะเพื่อคัดลอก IP">
                             <span class="item-label">IP Address</span>
                             <span class="item-val ip">${{ip}}</span>
                         </div>
@@ -485,7 +492,7 @@ def liff_page():
                         </div>
                     </div>
 
-                    <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดงานนี้</button>
+                    <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดทั้งหมด</button>
                 </div>
                 `;
             }}
@@ -545,6 +552,17 @@ def liff_page():
                 renderAccordion(filteredCategorized, true);
             }}
 
+            function copySingleValue(encodedVal, label, el) {{
+                const val = decodeURIComponent(encodedVal);
+                if (!val || val === '-') return;
+                
+                if (navigator.clipboard && window.isSecureContext) {{
+                    navigator.clipboard.writeText(val).then(() => showToast(`คัดลอก ${{label}} แล้ว`)).catch(() => fallbackCopy(val, null, label));
+                }} else {{
+                    fallbackCopy(val, null, label);
+                }}
+            }}
+
             function copyToClipboard(encodedText, btn) {{
                 const text = decodeURIComponent(encodedText);
                 
@@ -555,7 +573,7 @@ def liff_page():
                 }}
             }}
 
-            function fallbackCopy(text, btn) {{
+            function fallbackCopy(text, btn, label) {{
                 const textArea = document.createElement("textarea");
                 textArea.value = text;
                 textArea.style.position = "fixed";
@@ -565,7 +583,11 @@ def liff_page():
                 textArea.select();
                 try {{
                     document.execCommand('copy');
-                    updateBtnState(btn);
+                    if (btn) {{
+                        updateBtnState(btn);
+                    }} else if (label) {{
+                        showToast(`คัดลอก ${{label}} แล้ว`);
+                    }}
                 }} catch (err) {{
                     alert('ไม่สามารถคัดลอกได้');
                 }}
@@ -581,6 +603,27 @@ def liff_page():
                     btn.innerText = origText;
                     btn.style.backgroundColor = '#2A2A2E';
                     btn.style.color = '#DDD';
+                }}, 1500);
+            }}
+
+            function showToast(msg) {{
+                let toast = document.createElement('div');
+                toast.style.position = 'fixed';
+                toast.style.bottom = '20px';
+                toast.style.left = '50%';
+                toast.style.transform = 'translateX(-50%)';
+                toast.style.backgroundColor = '#00E676';
+                toast.style.color = '#000';
+                toast.style.padding = '8px 16px';
+                toast.style.borderRadius = '20px';
+                toast.style.fontWeight = 'bold';
+                toast.style.fontSize = '12px';
+                toast.style.zIndex = '9999';
+                toast.style.boxShadow = '0 2px 10px rgba(0,0,0,0.5)';
+                toast.innerText = msg;
+                document.body.appendChild(toast);
+                setTimeout(() => {{
+                    toast.remove();
                 }}, 1500);
             }}
 
