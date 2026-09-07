@@ -45,8 +45,14 @@ AREA_CONFIG = [
     },
     {
         "id": "area4", 
-        "name": "4. ห้วยขวาง (B104)", 
-        "keywords": ['B104', 'ห้วยขวาง', 'Grand Rama 9']  # ตัด 'บางกะปิ' และ 'B041' ออกแล้ว
+        "name": "4. ห้วยขวาง",  # 👈 ตัด (B104) ออก ไม่ใช้ B104 มาดักแล้ว
+        "keywords": [
+            'ห้วยขวาง', 'Grand Rama 9', 'Grand Rama9', 
+            'พระราม 9', 'พระราม๙', 'พระราม9', 
+            'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม'
+        ],
+        # กันไว้เผื่อมีข้อความติด เช่น "พระราม 9 / ดินแดง"
+        "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน', 'fortune', 'cp tower 2', 'esplanade'] 
     },
     {
         "id": "area5", 
@@ -109,21 +115,19 @@ def is_valid_bcode_row(row_str):
     return False
 
 def get_processed_data():
-    """ดึงข้อมูล และกรองเฉพาะ Node B-Code ที่อนุญาตเท่านั้น"""
+    """ดึงข้อมูล และกรองเฉพาะ Node B-Code ที่อนุญาต และคัดแยกเขตตามสถานที่จริง"""
     df, source = get_raw_df()
     if df is None:
         return None, source, {}
 
-    # รวมทุกคอลัมน์เพื่อใช้เช็กประเภทงานและ B-Code
     full_row_str = df.apply(lambda row: ' '.join(row), axis=1)
     
     # 1. กรองว่าเป็น WiFi / Femto
     wifi_mask = full_row_str.apply(is_wifi_or_femto_row)
     
-    # 2. กรองเฉพาะแถวที่มี B-Code ตามที่กำหนด
+    # 2. กรอง B-Code อนุญาต
     bcode_mask = full_row_str.apply(is_valid_bcode_row)
     
-    # รวมเงื่อนไขการกรอง
     filtered_df = df[wifi_mask & bcode_mask].copy()
 
     categorized = {area["id"]: [] for area in AREA_CONFIG}
@@ -133,10 +137,19 @@ def get_processed_data():
         row_text = ' '.join(str(v) for v in record.values())
 
         for area in AREA_CONFIG:
+            # เช็กว่ามี Keywords ของเขตนี้หรือไม่
             patterns = [re.escape(k) for k in area["keywords"]]
             pattern_regex = '|'.join(patterns)
 
             if re.search(pattern_regex, row_text, re.IGNORECASE):
+                # เช็กคำต้องห้าม (Exclude Keywords)
+                excludes = area.get("exclude_keywords", [])
+                if excludes:
+                    exclude_regex = '|'.join([re.escape(ex) for ex in excludes])
+                    if re.search(exclude_regex, row_text, re.IGNORECASE):
+                        # ถ้าเจอคำต้องห้าม เช่น ดินแดง, พญาไท, Fortune -> ข้ามไปทันที
+                        continue
+
                 extracted_ip = extract_ip(row_text)
                 record['_EXTRACTED_IP'] = extracted_ip
                 categorized[area["id"]].append(record)
