@@ -97,10 +97,10 @@ async def callback(request: Request):
 # Centralized Message Handler สำหรับดักจับทั้งข้อความและไฟล์
 @handler.add(MessageEvent)
 def handle_message(event):
-    # 1. จัดการข้อความตัวหนังสือ (พิมพ์ 'สรุป')
+    # 1. จัดการข้อความตัวหนังสือ (ตอบกลับเฉพาะคำว่า 'wifi' เท่านั้น)
     if isinstance(event.message, TextMessageContent):
         user_msg = event.message.text.strip().lower()
-        if user_msg in ["/summary", "สรุป", "summary", "report"]:
+        if user_msg == "wifi":
             report_text = get_summary_report()
             with ApiClient(configuration) as api_client:
                 line_bot_api = MessagingApi(api_client)
