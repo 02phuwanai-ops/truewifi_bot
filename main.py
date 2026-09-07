@@ -144,7 +144,7 @@ def create_wifi_flex_message():
                         "type": "box", "layout": "horizontal", "margin": "md",
                         "contents": [
                             {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
+                            {"type": "text", "text": f"{count_femto} งาน" if 'count_femto' in locals() else f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
                     {"type": "separator", "margin": "lg", "color": "#444444"},
@@ -210,7 +210,7 @@ def get_pending_data_api():
     if df_clean is None:
         return JSONResponse(status_code=500, content={"error": "Cannot load data"})
     
-    # กรองเฉพาะแถวที่อยู่ใน 6 เขตพื้นที่เท่านั้น ให้ตรงกับ Flex Message
+    # กรองเฉพาะแถวที่อยู่ใน 6 เขตพื้นที่เท่านั้น
     full_row_text = df_clean.apply(lambda row: ' '.join(row), axis=1)
     pattern = '|'.join(ALL_AREA_PATTERNS)
     matched_mask = full_row_text.str.contains(pattern, case=False, na=False)
@@ -230,28 +230,39 @@ def liff_page():
         <title>รายละเอียดงานค้าง 6 เขตพื้นที่</title>
         <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
         <style>
-            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }}
-            body {{ background-color: #121212; color: #E0E0E0; padding: 12px; font-size: 14px; -webkit-tap-highlight-color: transparent; }}
-            .header {{ position: sticky; top: 0; background-color: #121212; padding-bottom: 12px; z-index: 100; border-bottom: 1px solid #222; margin-bottom: 12px; }}
+            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+            html, body {{ width: 100%; min-height: 100vh; background-color: #121212; color: #E0E0E0; padding: 8px; font-size: 14px; }}
+            
+            .header {{ position: sticky; top: 0; background-color: #121212; padding: 8px 0; z-index: 100; border-bottom: 1px solid #222; margin-bottom: 12px; width: 100%; }}
             .title {{ color: #00E676; font-size: 16px; font-weight: bold; margin-bottom: 8px; text-align: center; }}
-            .search-box {{ width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 14px; outline: none; }}
+            .search-box {{ width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 14px; outline: none; }}
             .search-box:focus {{ border-color: #00E676; }}
-            .count-info {{ margin-top: 8px; font-size: 12px; color: #00E676; text-align: right; font-weight: bold; }}
+            .count-info {{ margin-top: 6px; font-size: 12px; color: #00E676; text-align: right; font-weight: bold; padding-right: 4px; }}
             
-            .card {{ background-color: #1E1E1E; border-radius: 10px; padding: 14px; margin-bottom: 12px; border: 1px solid #2A2A2A; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
-            .card-header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2C2C2C; padding-bottom: 8px; margin-bottom: 10px; }}
-            .badge {{ font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: bold; text-transform: uppercase; }}
-            .badge-wifi {{ background-color: rgba(255, 215, 0, 0.2); color: #FFD700; border: 1px solid #FFD700; }}
-            .badge-femto {{ background-color: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }}
-            .site-name {{ font-weight: bold; color: #FFF; font-size: 15px; word-break: break-word; }}
+            .card {{ width: 100%; background-color: #1C1C1E; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid #2A2A2D; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }}
             
-            .info-grid {{ display: grid; grid-template-columns: 100px 1fr; gap: 6px 10px; font-size: 13px; margin-bottom: 10px; align-items: start; }}
-            .label {{ color: #888888; font-size: 12px; }}
-            .val {{ color: #DDDDDD; word-break: break-word; }}
-            .val.highlight {{ color: #FFD700; font-weight: 500; }}
-            .val.status {{ color: #00E676; }}
+            .card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }}
+            .ticket-badge {{ font-family: monospace; font-size: 15px; font-weight: bold; color: #FFD700; word-break: break-all; }}
+            .type-badge {{ font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; flex-shrink: 0; }}
+            .badge-wifi {{ background-color: rgba(255, 215, 0, 0.15); color: #FFD700; border: 1px solid #FFD700; }}
+            .badge-femto {{ background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid #00E676; }}
 
-            .btn-copy {{ display: block; width: 100%; padding: 8px; background-color: #2A2A2A; color: #FFF; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
+            .subject-box {{ background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 12px; color: #E2E2E2; margin-bottom: 10px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }}
+            .subject-label {{ color: #888; font-size: 10px; font-weight: bold; display: block; margin-bottom: 2px; }}
+
+            .grid-container {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; background-color: #141416; padding: 8px 10px; border-radius: 6px; }}
+            @media (max-width: 360px) {{
+                .grid-container {{ grid-template-columns: 1fr; }}
+            }}
+            
+            .grid-item {{ display: flex; flex-direction: column; }}
+            .item-label {{ font-size: 10px; color: #888; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }}
+            .item-val {{ font-size: 12px; color: #FFF; font-weight: 500; word-break: break-all; }}
+            .item-val.ip {{ font-family: monospace; color: #64B5F6; font-weight: bold; }}
+            .item-val.status {{ color: #00E676; font-weight: bold; }}
+            .item-val.severity {{ color: #FF5252; font-weight: bold; }}
+
+            .btn-copy {{ display: block; width: 100%; padding: 9px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
             .btn-copy:active {{ background-color: #00E676; color: #000; }}
             .loading {{ text-align: center; padding: 40px; color: #888; font-size: 14px; }}
         </style>
@@ -259,7 +270,7 @@ def liff_page():
     <body>
         <div class="header">
             <div class="title">📋 รายละเอียดงานค้าง 6 เขตพื้นที่</div>
-            <input type="text" id="searchInput" class="search-box" placeholder="🔍 ค้นหา Site, Ticket, สถานะ, เขต..." oninput="filterData()">
+            <input type="text" id="searchInput" class="search-box" placeholder="🔍 ค้นหา TICKETID, IP, SUBJECT, STATUS..." oninput="filterData()">
             <div class="count-info" id="countInfo">กำลังโหลดข้อมูล...</div>
         </div>
 
@@ -290,8 +301,10 @@ def liff_page():
 
             function getVal(item, keys) {{
                 for (let k of keys) {{
-                    let foundKey = Object.keys(item).find(ik => ik.toLowerCase().trim() === k.toLowerCase());
-                    if (foundKey && item[foundKey]) return item[foundKey];
+                    let foundKey = Object.keys(item).find(ik => ik.toLowerCase().trim() === k.toLowerCase().trim());
+                    if (foundKey && item[foundKey] && String(item[foundKey]).trim() !== '') {{
+                        return String(item[foundKey]).trim();
+                    }}
                 }}
                 return '-';
             }}
@@ -301,7 +314,7 @@ def liff_page():
                 document.getElementById('countInfo').innerText = `แสดง ${{list.length}} จากทั้งหมด ${{rawData.length}} งาน`;
 
                 if (list.length === 0) {{
-                    container.innerHTML = '<div class="loading">ไม่พบข้อมูลงานค้างในเขตนี้</div>';
+                    container.innerHTML = '<div class="loading">ไม่พบข้อมูลงานค้าง</div>';
                     return;
                 }}
 
@@ -310,44 +323,49 @@ def liff_page():
                     let jsonStr = JSON.stringify(item).toLowerCase();
                     let isFemto = jsonStr.includes('femto');
                     
-                    let sitename = getVal(item, ['SITENAME', 'Site Name', 'Site']);
-                    let ticket = getVal(item, ['WOA', 'Ticket', 'Ticket_ID', 'INCIDENT']);
-                    let district = getVal(item, ['DISTRICT', 'Subdistrict', 'PROVINCE']);
-                    let priority = getVal(item, ['priority_pending', 'Priority']);
-                    let status = getVal(item, ['Tech_Status', 'Status']);
-                    let team = getVal(item, ['Tech_Team', 'Team']);
-                    let time = getVal(item, ['Tech_timestamp', 'timestamp']);
+                    let ticket = getVal(item, ['TICKETID', 'TICKET_ID', 'TICKET', 'WOA', 'INCIDENT']);
+                    let ip = getVal(item, ['IP', 'IP_ADDRESS', 'IPADDRESS', 'HOST_IP']);
+                    let subject = getVal(item, ['SUBJECT', 'TITLE', 'DESCRIPTION', 'SUMMARY']);
+                    let status = getVal(item, ['STATUS', 'Tech_Status', 'STATE']);
+                    let severity = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']);
+                    let creationDate = getVal(item, ['CREATIONDATE', 'CREATION_DATE', 'CREATED', 'Tech_timestamp', 'TIMESTAMP']);
 
-                    // ข้อความสำหรับปุ่มกดคัดลอก
-                    let copyText = `Site: ${{sitename}}\\nTicket: ${{ticket}}\\nเขต: ${{district}}\\nสถานะ: ${{status}}\\nทีม: ${{team}}\\nเวลา: ${{time}}`;
+                    // ข้อความสำหรับคัดลอก
+                    let copyText = `TICKETID: ${{ticket}}\\nIP: ${{ip}}\\nSUBJECT: ${{subject}}\\nSTATUS: ${{status}}\\nSEVERITY: ${{severity}}\\nCREATIONDATE: ${{creationDate}}`;
                     let safeCopyText = encodeURIComponent(copyText);
 
                     html += `
                     <div class="card">
                         <div class="card-header">
-                            <div class="site-name">${{sitename}}</div>
-                            <span class="badge ${{isFemto ? 'badge-femto' : 'badge-wifi'}}">${{isFemto ? 'Femto' : 'WiFi'}}</span>
+                            <div class="ticket-badge">🎫 ${{ticket}}</div>
+                            <span class="type-badge ${{isFemto ? 'badge-femto' : 'badge-wifi'}}">${{isFemto ? 'Femto' : 'WiFi'}}</span>
                         </div>
-                        <div class="info-grid">
-                            <div class="label">Ticket:</div>
-                            <div class="val highlight">${{ticket}}</div>
-                            
-                            <div class="label">พื้นที่/เขต:</div>
-                            <div class="val">${{district}}</div>
-                            
-                            <div class="label">ความสำคัญ:</div>
-                            <div class="val">${{priority}}</div>
 
-                            <div class="label">สถานะงาน:</div>
-                            <div class="val status">${{status}}</div>
-
-                            <div class="label">ทีมช่าง:</div>
-                            <div class="val">${{team}}</div>
-
-                            <div class="label">เวลาล่าสุด:</div>
-                            <div class="val" style="font-size:11px; color:#AAA;">${{time}}</div>
+                        <div class="subject-box">
+                            <span class="subject-label">SUBJECT</span>
+                            ${{subject}}
                         </div>
-                        <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกข้อมูลงานนี้</button>
+
+                        <div class="grid-container">
+                            <div class="grid-item">
+                                <span class="item-label">IP Address</span>
+                                <span class="item-val ip">${{ip}}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">STATUS</span>
+                                <span class="item-val status">${{status}}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">SEVERITY</span>
+                                <span class="item-val severity">${{severity}}</span>
+                            </div>
+                            <div class="grid-item">
+                                <span class="item-label">CREATION DATE</span>
+                                <span class="item-val" style="font-size:11px; color:#AAA;">${{creationDate}}</span>
+                            </div>
+                        </div>
+
+                        <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดงานนี้</button>
                     </div>
                     `;
                 }});
@@ -372,13 +390,13 @@ def liff_page():
                 const text = decodeURIComponent(encodedText);
                 navigator.clipboard.writeText(text).then(() => {{
                     const origText = btn.innerText;
-                    btn.innerText = '✅ คัดลอกเรียบร้อย!';
+                    btn.innerText = '✅ คัดลอกข้อมูลเรียบร้อย!';
                     btn.style.backgroundColor = '#00E676';
                     btn.style.color = '#000';
                     setTimeout(() => {{
                         btn.innerText = origText;
-                        btn.style.backgroundColor = '#2A2A2A';
-                        btn.style.color = '#FFF';
+                        btn.style.backgroundColor = '#2A2A2E';
+                        btn.style.color = '#DDD';
                     }}, 1500);
                 }});
             }}
