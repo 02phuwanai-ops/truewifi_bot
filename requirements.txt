@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+pandas
+openpyxl
+line-bot-sdk
