@@ -8,7 +8,7 @@ from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi, MessagingApiBlob,
     ReplyMessageRequest, TextMessage
 )
-from linebot.v3.webhooks import MessageEvent, TextMessageContent, DocumentMessageContent
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, FileMessageContent
 
 app = FastAPI()
 
@@ -96,24 +96,23 @@ def handle_text_message(event):
             )
 
 # 2. Handler สำหรับจัดการเมื่อผู้ใช้อัปโหลดไฟล์เอกสาร (Document / Excel)
-@handler.add(MessageEvent, message=DocumentMessageContent)
-def handle_document_message(event):
-    file_name = event.message.file_name
-    
-    # ตรวจสอบว่าเป็นไฟล์ Excel (.xlsx หรือ .xls) หรือไม่
+# จัดการเมื่อมีคนส่งไฟล์ Excel เข้ามาในไลน์
+@handler.add(MessageEvent, message=FileMessageContent)
+def handle_file_message(event):
+    file_name = getattr(event.message, 'file_name', 'data.xlsx')
+
     if file_name.endswith('.xlsx') or file_name.endswith('.xls'):
         message_id = event.message.id
-        
-        # ดาวน์โหลดไฟล์จาก LINE Server
+
         with ApiClient(configuration) as api_client:
             line_bot_blob_api = MessagingApiBlob(api_client)
             content = line_bot_blob_api.get_message_content(message_id=message_id)
-            
-            # บันทึกไฟล์ทับเป็น MASTER_EXCEL_FILE
+
+            # บันทึกไฟล์ทับลงเซิร์ฟเวอร์
             with open(MASTER_EXCEL_FILE, 'wb') as f:
                 f.write(content)
-                
-        reply_msg = f"✅ อัปเดตไฟล์ข้อมูลสำเร็จ!\nชื่อไฟล์: {file_name}\n\nคุณสามารถพิมพ์คำว่า '/summary' หรือ 'สรุป' เพื่อดูรายงานได้ทันทีครับ"
+
+        reply_msg = f"✅ อัปเดตไฟล์ข้อมูลสำเร็จ!\nชื่อไฟล์: {file_name}\n\nพิมพ์คำว่า 'สรุป' เพื่อดูรายงานได้ทันทีครับ"
     else:
         reply_msg = "⚠️ กรุณาส่งเฉพาะไฟล์ประเภท Excel (.xlsx หรือ .xls) เท่านั้นครับ"
 
