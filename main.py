@@ -19,8 +19,11 @@ LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# นิยามชื่อไฟล์ Master ที่จะใช้ประมวลผล
+# นิยามชื่อไฟล์ Master สำรองกรณีใช้อัปโหลด
 MASTER_EXCEL_FILE = "latest_pending.xlsx"
+
+# ลิงก์ Google Sheet แปลงเป็น URL สำหรับดาวน์โหลด CSV อัตโนมัติ
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AEQSsiLUbr5p6HYh36WNGF9TkUDVeW2xN-vDvDkjy1k/export?format=csv&gid=0"
 
 # นิยาม 6 เขตรับผิดชอบและ Keyword สำหรับคัดกรอง
 AREA_KEYWORDS = {
@@ -33,15 +36,28 @@ AREA_KEYWORDS = {
 }
 
 def get_summary_report():
-    if not os.path.exists(MASTER_EXCEL_FILE):
-        return "⚠️ ยังไม่มีไฟล์ข้อมูลในระบบ กรุณาส่งไฟล์ Excel (.xlsx) เข้ามาในแชตเพื่ออัปเดตข้อมูลก่อนครับ"
+    df = None
+    data_source = ""
 
+    # 1. พยายามดึงข้อมูลสดจาก Google Sheet ก่อน
     try:
-        df = pd.read_excel(MASTER_EXCEL_FILE)
+        df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
+        data_source = "Google Sheet (Live)"
     except Exception as e:
-        return f"❌ เกิดข้อผิดพลาดในการอ่านไฟล์: {str(e)}"
+        print(f"Cannot fetch from Google Sheet: {e}")
 
-    summary_text = "📊 สรุป True WiFi Ticket ค้างซ่อม ใน 6 เขตรับผิดชอบ\n"
+    # 2. ถ้าดึง Google Sheet ไม่ได้ ให้ใช้ไฟล์ Excel ในเครื่องสำรอง
+    if df is None:
+        if os.path.exists(MASTER_EXCEL_FILE):
+            try:
+                df = pd.read_excel(MASTER_EXCEL_FILE)
+                data_source = "Local Excel File"
+            except Exception as e:
+                return f"❌ เกิดข้อผิดพลาดในการอ่านไฟล์สำรอง: {str(e)}"
+        else:
+            return "⚠️ ไม่สามารถดึงข้อมูลจาก Google Sheet ได้ และยังไม่มีไฟล์ Excel สำรองในระบบ"
+
+    summary_text = f"📊 สรุป True WiFi Ticket ค้างซ่อม ({data_source})\n"
     summary_text += "-------------------------------------------\n"
     
     total_all_areas = 0
@@ -65,7 +81,7 @@ def get_summary_report():
 
 @app.get("/")
 def root_check():
-    return {"status": "True WiFi Bot with File Upload Support is running"}
+    return {"status": "True WiFi Bot with Dual Source Support is running"}
 
 @app.post("/webhook")
 async def callback(request: Request):
@@ -74,7 +90,6 @@ async def callback(request: Request):
     try:
         handler.handle(body.decode("utf-8"), signature)
     except Exception as e:
-        # บันทึก Error log และตอบกลับ 200 เพื่อให้ LINE Verify ผ่าน
         print(f"Webhook Error/Verify: {e}")
         return "OK"
     return "OK"
@@ -96,8 +111,8 @@ def handle_message(event):
                     )
                 )
 
-    # 2. จัดการเมื่อผู้ใช้อัปโหลดไฟล์เอกสาร (Excel)
-    elif isinstance(event.message, FileMessageContent) or event.message.type == "file":
+    # 2. จัดการเมื่อผู้ใช้อัปโหลดไฟล์เอกสาร (Excel สำรอง)
+    elif isinstance(event.message, FileMessageContent) or getattr(event.message, 'type', None) == "file":
         file_name = getattr(event.message, 'file_name', 'data.xlsx')
 
         if file_name.lower().endswith(('.xlsx', '.xls')):
@@ -111,7 +126,7 @@ def handle_message(event):
                 with open(MASTER_EXCEL_FILE, 'wb') as f:
                     f.write(content)
 
-            reply_msg = f"✅ อัปเดตไฟล์ข้อมูลสำเร็จ!\nชื่อไฟล์: {file_name}\n\nพิมพ์คำว่า 'สรุป' เพื่อดูรายงานได้ทันทีครับ"
+            reply_msg = f"✅ อัปเดตไฟล์สำรองเรียบร้อย!\nชื่อไฟล์: {file_name}\n\nระบบจะดึงจาก Google Sheet เป็นหลัก หากมีปัญหาจะสลับมาใช้ไฟล์นี้แทนครับ"
         else:
             reply_msg = "⚠️ กรุณาส่งเฉพาะไฟล์ประเภท Excel (.xlsx หรือ .xls) เท่านั้นครับ"
 
