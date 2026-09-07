@@ -33,6 +33,16 @@ AREA_CONFIG = [
     {"id": "area6", "name": "6. วังทองหลาง / พลับพลา", "keywords": ['วังทองหลาง', 'พลับพลา']}
 ]
 
+def extract_ip(text):
+    """ฟังก์ชันสกัด IP Address จากข้อความทุกรูปแบบ เช่น TRUEWIFI | I82117B – 10.248.89.152 | ..."""
+    if not text:
+        return "-"
+    # Match IP address Pattern xxx.xxx.xxx.xxx
+    ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', str(text))
+    if ip_match:
+        return ip_match.group(0)
+    return "-"
+
 def get_raw_df():
     """ดึงข้อมูลดิบจาก Google Sheet หรือไฟล์ Excel"""
     df = None
@@ -57,48 +67,43 @@ def get_raw_df():
     return df.fillna("").astype(str), data_source
 
 def is_wifi_or_femto_row(row_str):
-    """ฟังก์ชันตรวจสอบว่าเป็นงาน TrueWiFi หรือ Femto หรือไม่ (คัดพวก FTTH/Corp ออก)"""
+    """กรองเอาเฉพาะ TrueWiFi และ Femto เท่านั้น (ตัด FTTH / Splitter / Corp ออก)"""
     r = row_str.lower()
-    # หากมี FTTH หรือ Splitter ให้คัดออก เว้นแต่จะมีคำว่า wifi หรือ femto กำกับชัดเจน
-    if 'ftth' in r or 'splitter' in r:
-        if 'wifi' not in r and 'femto' not in r:
+    if 'ftth' in r or 'splitter' in r or 'bma_ftth' in r or 'upc_ftth' in r:
+        if 'wifi' not in r and 'femto' not in r and 'truewifi' not in r:
             return False
-    # ตรวจสอบว่าเป็น TrueWiFi หรือ Femto
-    wifi_keywords = ['truewifi', 'wifi', 'femto', 'ap down', 'ap_down', 'i92', 'i91', 'i93']
+    wifi_keywords = ['truewifi', 'wifi', 'femto', 'ap down', 'ap_down', 'i92', 'i91', 'i93', 'i82']
     return any(kw in r for kw in wifi_keywords)
 
 def get_processed_data():
-    """ดึงข้อมูลที่ผ่านการกรองและจัดกลุ่มตามเขตเรียบร้อยแล้ว (ใช้ร่วมกันทั้ง Flex และ LIFF)"""
+    """ดึงและกรองข้อมูลเฉพาะ 6 เขตพื้นที่เท่านั้น"""
     df, source = get_raw_df()
     if df is None:
         return None, source, {}
 
     full_row_str = df.apply(lambda row: ' '.join(row), axis=1)
     
-    # Filter 1: เอาเฉพาะที่เป็น WiFi / Femto
+    # Filter 1: เอาเฉพาะ TrueWiFi / Femto
     wifi_mask = full_row_str.apply(is_wifi_or_femto_row)
     filtered_df = df[wifi_mask].copy()
     filtered_str = full_row_str[wifi_mask]
 
-    # จัดกลุ่มตามเขต
     categorized = {area["id"]: [] for area in AREA_CONFIG}
-    categorized["other"] = []
-
+    
     records = filtered_df.to_dict(orient="records")
     for idx, record in enumerate(records):
         row_text = filtered_str.iloc[idx]
-        matched_area = False
-
+        
+        # ค้นหาว่าอยู่เขตไหนใน 6 เขต
         for area in AREA_CONFIG:
             pattern = '|'.join(area["keywords"])
             if re.search(pattern, row_text, re.IGNORECASE):
+                # สกัด IP หากใน record ไม่มี IP หรือ IP เป็นค่าว่าง
+                extracted_ip = extract_ip(' '.join(record.values()))
+                record['_EXTRACTED_IP'] = extracted_ip
+                
                 categorized[area["id"]].append(record)
-                matched_area = True
-                break  # จัดเข้าเขตแรกที่ตรงเพื่อป้องกันการนับซ้ำ
-
-        if not matched_area:
-            # หากเป็น WiFi/Femto แต่ไม่เข้า 6 เขตนี้
-            categorized["other"].append(record)
+                break  # แมตช์เข้าเขตแรก แล้วหยุดเลย (ป้องกันการนับซ้ำ)
 
     return filtered_df, source, categorized
 
@@ -267,33 +272,35 @@ def liff_page():
     <html lang="th">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>รายละเอียดงานค้าง True WiFi</title>
         <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
         <style>
             * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-            html, body {{ width: 100vw; min-height: 100vh; background-color: #121212; color: #E0E0E0; padding: 8px 4px; font-size: 14px; overflow-x: hidden; }}
+            html, body {{ width: 100%; min-height: 100vh; background-color: #121212; color: #E0E0E0; padding: 0; font-size: 14px; overflow-x: hidden; }}
             
-            .header {{ position: sticky; top: 0; background-color: #121212; padding: 8px 4px; z-index: 100; border-bottom: 1px solid #222; margin-bottom: 12px; width: 100%; }}
+            .container {{ width: 100%; padding: 8px 6px; }}
+            
+            .header {{ position: sticky; top: 0; background-color: #121212; padding: 10px 8px; z-index: 100; border-bottom: 1px solid #222; margin-bottom: 10px; width: 100%; }}
             .title {{ color: #00E676; font-size: 16px; font-weight: bold; margin-bottom: 8px; text-align: center; }}
             .search-box {{ width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 14px; outline: none; }}
             .search-box:focus {{ border-color: #00E676; }}
-            .count-info {{ margin-top: 6px; font-size: 12px; color: #00E676; text-align: right; font-weight: bold; padding-right: 4px; }}
+            .count-info {{ margin-top: 6px; font-size: 12px; color: #00E676; text-align: right; font-weight: bold; }}
             
             /* Accordion Group Style */
             .area-group {{ width: 100%; margin-bottom: 10px; border-radius: 8px; overflow: hidden; border: 1px solid #2C2C2E; background-color: #18181A; }}
-            .area-header {{ width: 100%; padding: 14px 12px; background-color: #222225; color: #FFF; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }}
+            .area-header {{ width: 100%; padding: 14px 10px; background-color: #222225; color: #FFF; font-weight: bold; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }}
             .area-header:active {{ background-color: #2C2C30; }}
             .area-badge {{ background-color: #00E676; color: #000; font-size: 12px; padding: 2px 8px; border-radius: 12px; font-weight: bold; }}
-            .area-badge.zero {{ background-color: #444; color: #888; }}
-            .arrow-icon {{ transition: transform 0.3s; font-size: 12px; color: #888; margin-left: 8px; }}
+            .area-badge.zero {{ background-color: #333; color: #777; }}
+            .arrow-icon {{ transition: transform 0.3s; font-size: 12px; color: #888; margin-left: 6px; }}
             .area-group.open .arrow-icon {{ transform: rotate(180deg); color: #00E676; }}
             
-            .area-content {{ display: none; padding: 8px 6px; }}
+            .area-content {{ display: none; padding: 8px 4px; }}
             .area-group.open .area-content {{ display: block; }}
 
-            /* Card Style - Full Width */
-            .card {{ width: 100%; background-color: #1C1C1E; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; border: 1px solid #2A2A2D; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }}
+            /* Card Style - 100% Full Width */
+            .card {{ width: 100%; background-color: #1C1C1E; border-radius: 8px; padding: 10px 10px; margin-bottom: 8px; border: 1px solid #2A2A2D; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }}
             
             .card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; }}
             .ticket-badge {{ font-family: monospace; font-size: 14px; font-weight: bold; color: #FFD700; word-break: break-all; }}
@@ -313,7 +320,7 @@ def liff_page():
             .item-val.status {{ color: #00E676; font-weight: bold; }}
             .item-val.severity {{ color: #FF5252; font-weight: bold; }}
 
-            .btn-copy {{ display: block; width: 100%; padding: 8px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
+            .btn-copy {{ display: block; width: 100%; padding: 9px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
             .btn-copy:active {{ background-color: #00E676; color: #000; }}
             .loading {{ text-align: center; padding: 40px; color: #888; font-size: 14px; }}
         </style>
@@ -325,7 +332,9 @@ def liff_page():
             <div class="count-info" id="countInfo">กำลังโหลดข้อมูล...</div>
         </div>
 
-        <div id="accordionContainer" class="loading">⏳ กำลังโหลดข้อมูลสดจากระบบ...</div>
+        <div class="container">
+            <div id="accordionContainer" class="loading">⏳ กำลังโหลดข้อมูลสดจากระบบ...</div>
+        </div>
 
         <script>
             let categorizedData = {{}};
@@ -358,23 +367,35 @@ def liff_page():
             function getVal(item, keys) {{
                 for (let k of keys) {{
                     let foundKey = Object.keys(item).find(ik => ik.toLowerCase().trim() === k.toLowerCase().trim());
-                    if (foundKey && item[foundKey] && String(item[foundKey]).trim() !== '') {{
+                    if (foundKey && item[foundKey] && String(item[foundKey]).trim() !== '' && String(item[foundKey]).trim() !== '-') {{
                         return String(item[foundKey]).trim();
                     }}
                 }}
-                return '-';
+                return null;
+            }}
+
+            function extractIpFromString(text) {{
+                if (!text) return '-';
+                const match = text.match(/\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b/);
+                return match ? match[0] : '-';
             }}
 
             function buildCardHtml(item) {{
                 let jsonStr = JSON.stringify(item).toLowerCase();
                 let isFemto = jsonStr.includes('femto');
                 
-                let ticket = getVal(item, ['TICKETID', 'TICKET_ID', 'TICKET', 'WOA', 'INCIDENT']);
-                let ip = getVal(item, ['IP', 'IP_ADDRESS', 'IPADDRESS', 'HOST_IP']);
-                let subject = getVal(item, ['SUBJECT', 'TITLE', 'DESCRIPTION', 'SUMMARY']);
-                let status = getVal(item, ['STATUS', 'Tech_Status', 'STATE']);
-                let severity = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']);
-                let creationDate = getVal(item, ['CREATIONDATE', 'CREATION_DATE', 'CREATED', 'Tech_timestamp', 'TIMESTAMP']);
+                let ticket = getVal(item, ['TICKETID', 'TICKET_ID', 'TICKET', 'WOA', 'INCIDENT']) || '-';
+                let subject = getVal(item, ['SUBJECT', 'TITLE', 'DESCRIPTION', 'SUMMARY']) || '-';
+                
+                // สกัด IP Address ให้เป๊ะที่สุด (ตรวจจาก Field IP ก่อน ถ้าไม่มี ให้สกัดจาก Subject/JSON)
+                let ip = getVal(item, ['IP', 'IP_ADDRESS', 'IPADDRESS', 'HOST_IP', '_EXTRACTED_IP']);
+                if (!ip || ip === '-') {{
+                    ip = extractIpFromString(subject !== '-' ? subject : jsonStr);
+                }}
+
+                let status = getVal(item, ['STATUS', 'Tech_Status', 'STATE']) || '-';
+                let severity = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '-';
+                let creationDate = getVal(item, ['CREATIONDATE', 'CREATION_DATE', 'CREATED', 'Tech_timestamp', 'TIMESTAMP']) || '-';
 
                 let copyText = `TICKETID: ${{ticket}}\\nIP: ${{ip}}\\nSUBJECT: ${{subject}}\\nSTATUS: ${{status}}\\nSEVERITY: ${{severity}}\\nCREATIONDATE: ${{creationDate}}`;
                 let safeCopyText = encodeURIComponent(copyText);
@@ -421,11 +442,11 @@ def liff_page():
                 let displayTotal = 0;
                 let html = '';
 
-                // วนลูปตาม 6 เขต
+                // วนเฉพาะ 6 เขตพื้นที่เท่านั้น
                 areaConfig.forEach(area => {{
                     const items = currentData[area.id] || [];
                     displayTotal += items.length;
-                    const isOpen = isSearching && items.length > 0; // หากค้นหาอยู่ให้อ้าออกอัตโนมัติ
+                    const isOpen = isSearching && items.length > 0;
 
                     html += `
                     <div class="area-group ${{isOpen ? 'open' : ''}}" id="group-${{area.id}}">
@@ -442,26 +463,6 @@ def liff_page():
                     </div>
                     `;
                 }});
-
-                // หมวดหมู่งานอื่นๆ (ถ้ามี)
-                const otherItems = currentData['other'] || [];
-                if (otherItems.length > 0) {{
-                    displayTotal += otherItems.length;
-                    html += `
-                    <div class="area-group" id="group-other">
-                        <div class="area-header" onclick="toggleGroup('group-other')">
-                            <span>7. เขตอื่นๆ / นอกพื้นที่</span>
-                            <div>
-                                <span class="area-badge">${{otherItems.length}} งาน</span>
-                                <span class="arrow-icon">▼</span>
-                            </div>
-                        </div>
-                        <div class="area-content">
-                            ${{otherItems.map(buildCardHtml).join('')}}
-                        </div>
-                    </div>
-                    `;
-                }}
 
                 document.getElementById('countInfo').innerText = `แสดง ${{displayTotal}} จากทั้งหมด ${{totalCountAll}} งาน`;
                 container.innerHTML = html;
