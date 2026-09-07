@@ -54,8 +54,11 @@ def get_summary_report():
             return "⚠️ ดึง Google Sheet ไม่สำเร็จ และไม่มีไฟล์ Excel สำรอง"
 
     try:
-        # แปลงข้อมูลในแต่ละแถวให้เป็น String รวมกันทุกคอลัมน์ เพื่อให้ค้นหาได้อย่างครอบคลุม
-        full_row_text = df.astype(str).apply(lambda row: ' '.join(row), axis=1)
+        # แทนที่ค่าว่าง (NaN) ด้วยข้อความว่าง แล้วแปลงทุกช่องเป็น String อย่างปลอดภัย
+        df_clean = df.fillna("").astype(str)
+        
+        # แปลงข้อมูลในแต่ละแถวให้เป็น String รวมกันทุกคอลัมน์
+        full_row_text = df_clean.apply(lambda row: ' '.join(row), axis=1)
 
         summary_text = f"📊 สรุป True WiFi Ticket ค้างซ่อม ({data_source})\n"
         summary_text += "-------------------------------------------\n"
@@ -64,9 +67,9 @@ def get_summary_report():
 
         for area_name, keywords in AREA_KEYWORDS.items():
             pattern = '|'.join(keywords)
-            # ค้นหาคำในแถวข้อมูลทั้งหมดโดยไม่เกี่ยงว่าเป็นคอลัมน์ไหน
+            # ค้นหาคำในแถวข้อมูลทั้งหมด
             matched_rows = full_row_text.str.contains(pattern, case=False, na=False)
-            count = matched_rows.sum()
+            count = int(matched_rows.sum())
             total_all_areas += count
             summary_text += f"{area_name}:  {count} งาน\n"
             
