@@ -243,7 +243,7 @@ def create_wifi_flex_message():
                         "type": "box", "layout": "horizontal", "margin": "sm",
                         "contents": [
                             {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{count_femto if 'count_femto' in locals() else femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
+                            {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
                     {"type": "separator", "margin": "md", "color": "#444444"},
@@ -693,8 +693,4 @@ def handle_message(event):
                     )
                 )
         except Exception as e:
-            print(f"Error sending LINE file reply: {e}")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+            print(f"Error sending LINE message: {e}")
