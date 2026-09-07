@@ -79,53 +79,50 @@ async def callback(request: Request):
         return "OK"
     return "OK"
 
-# 1. Handler สำหรับจัดการข้อความตัวหนังสือ
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_text_message(event):
-    user_msg = event.message.text.strip().lower()
-    
-    # คำสั่งเรียกร้องดูสรุป
-    if user_msg in ["/summary", "สรุป", "summary", "report"]:
-        report_text = get_summary_report()
-        
+# Centralized Message Handler สำหรับดักจับทั้งข้อความและไฟล์
+@handler.add(MessageEvent)
+def handle_message(event):
+    # 1. จัดการข้อความตัวหนังสือ (พิมพ์ 'สรุป')
+    if isinstance(event.message, TextMessageContent):
+        user_msg = event.message.text.strip().lower()
+        if user_msg in ["/summary", "สรุป", "summary", "report"]:
+            report_text = get_summary_report()
+            with ApiClient(configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=report_text)]
+                    )
+                )
+
+    # 2. จัดการเมื่อผู้ใช้อัปโหลดไฟล์เอกสาร (Excel)
+    elif isinstance(event.message, FileMessageContent) or event.message.type == "file":
+        file_name = getattr(event.message, 'file_name', 'data.xlsx')
+
+        if file_name.lower().endswith(('.xlsx', '.xls')):
+            message_id = event.message.id
+
+            with ApiClient(configuration) as api_client:
+                line_bot_blob_api = MessagingApiBlob(api_client)
+                content = line_bot_blob_api.get_message_content(message_id=message_id)
+
+                # บันทึกไฟล์ทับลงเซิร์ฟเวอร์
+                with open(MASTER_EXCEL_FILE, 'wb') as f:
+                    f.write(content)
+
+            reply_msg = f"✅ อัปเดตไฟล์ข้อมูลสำเร็จ!\nชื่อไฟล์: {file_name}\n\nพิมพ์คำว่า 'สรุป' เพื่อดูรายงานได้ทันทีครับ"
+        else:
+            reply_msg = "⚠️ กรุณาส่งเฉพาะไฟล์ประเภท Excel (.xlsx หรือ .xls) เท่านั้นครับ"
+
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text=report_text)]
+                    messages=[TextMessage(text=reply_msg)]
                 )
             )
-
-# 2. Handler สำหรับจัดการเมื่อผู้ใช้อัปโหลดไฟล์เอกสาร (Document / Excel)
-# จัดการเมื่อมีคนส่งไฟล์ Excel เข้ามาในไลน์
-@handler.add(MessageEvent, message=FileMessageContent)
-def handle_file_message(event):
-    file_name = getattr(event.message, 'file_name', 'data.xlsx')
-
-    if file_name.endswith('.xlsx') or file_name.endswith('.xls'):
-        message_id = event.message.id
-
-        with ApiClient(configuration) as api_client:
-            line_bot_blob_api = MessagingApiBlob(api_client)
-            content = line_bot_blob_api.get_message_content(message_id=message_id)
-
-            # บันทึกไฟล์ทับลงเซิร์ฟเวอร์
-            with open(MASTER_EXCEL_FILE, 'wb') as f:
-                f.write(content)
-
-        reply_msg = f"✅ อัปเดตไฟล์ข้อมูลสำเร็จ!\nชื่อไฟล์: {file_name}\n\nพิมพ์คำว่า 'สรุป' เพื่อดูรายงานได้ทันทีครับ"
-    else:
-        reply_msg = "⚠️ กรุณาส่งเฉพาะไฟล์ประเภท Excel (.xlsx หรือ .xls) เท่านั้นครับ"
-
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=reply_msg)]
-            )
-        )
 
 if __name__ == "__main__":
     import uvicorn
