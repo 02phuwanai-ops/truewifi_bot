@@ -79,7 +79,7 @@ def create_wifi_flex_message():
             count_femto = int((area_matched & is_femto_mask).sum())
             femto_total += count_femto
 
-            # แถวแสดงผล WiFi
+            # แถวแสดงผล WiFi (Light Theme + ฟอนต์ใหญ่ sm)
             wifi_rows_json.append({
                 "type": "box",
                 "layout": "horizontal",
@@ -87,25 +87,25 @@ def create_wifi_flex_message():
                     {
                         "type": "text",
                         "text": area_name,
-                        "size": "xs",
-                        "color": "#DDDDDD",
+                        "size": "sm",
+                        "color": "#1F2937",
                         "flex": 4,
                         "wrap": True
                     },
                     {
                         "type": "text",
                         "text": f"{count_wifi} งาน",
-                        "size": "xs",
-                        "color": "#FFD700" if count_wifi > 0 else "#888888",
+                        "size": "sm",
+                        "color": "#DC2626" if count_wifi > 0 else "#9CA3AF",
                         "weight": "bold",
                         "align": "end",
                         "flex": 2
                     }
                 ],
-                "margin": "sm"
+                "margin": "md"
             })
 
-            # แถวแสดงผล Femto
+            # แถวแสดงผล Femto (Light Theme + ฟอนต์ใหญ่ sm)
             femto_rows_json.append({
                 "type": "box",
                 "layout": "horizontal",
@@ -113,22 +113,22 @@ def create_wifi_flex_message():
                     {
                         "type": "text",
                         "text": area_name,
-                        "size": "xs",
-                        "color": "#DDDDDD",
+                        "size": "sm",
+                        "color": "#1F2937",
                         "flex": 4,
                         "wrap": True
                     },
                     {
                         "type": "text",
                         "text": f"{count_femto} งาน",
-                        "size": "xs",
-                        "color": "#00E676" if count_femto > 0 else "#888888",
+                        "size": "sm",
+                        "color": "#DC2626" if count_femto > 0 else "#9CA3AF",
                         "weight": "bold",
                         "align": "end",
                         "flex": 2
                     }
                 ],
-                "margin": "sm"
+                "margin": "md"
             })
 
         grand_total = wifi_total + femto_total
@@ -139,7 +139,7 @@ def create_wifi_flex_message():
             "header": {
                 "type": "box",
                 "layout": "vertical",
-                "backgroundColor": "#1A1A1A",
+                "backgroundColor": "#F3F4F6",
                 "paddingAll": "lg",
                 "contents": [
                     {
@@ -157,7 +157,7 @@ def create_wifi_flex_message():
                                 "type": "text",
                                 "text": f"Source: {data_source}",
                                 "size": "xs",
-                                "color": "#888888",
+                                "color": "#6B7280",
                                 "align": "end"
                             }
                         ]
@@ -167,7 +167,7 @@ def create_wifi_flex_message():
                         "text": "สรุปงานค้างซ่อมประจำเขต",
                         "weight": "bold",
                         "size": "xl",
-                        "color": "#FFFFFF",
+                        "color": "#111827",
                         "margin": "sm"
                     }
                 ]
@@ -175,7 +175,7 @@ def create_wifi_flex_message():
             "body": {
                 "type": "box",
                 "layout": "vertical",
-                "backgroundColor": "#242424",
+                "backgroundColor": "#FFFFFF",
                 "paddingAll": "lg",
                 "contents": [
                     # SECTION 1: TRUE WIFI
@@ -183,72 +183,72 @@ def create_wifi_flex_message():
                         "type": "text",
                         "text": "📶 True WiFi",
                         "weight": "bold",
-                        "color": "#FFD700",
-                        "size": "sm"
+                        "color": "#1D4ED8",
+                        "size": "md"
                     },
                     {
                         "type": "box",
                         "layout": "vertical",
-                        "margin": "sm",
+                        "margin": "md",
                         "contents": wifi_rows_json
                     },
                     {
                         "type": "box",
                         "layout": "horizontal",
-                        "margin": "md",
+                        "margin": "lg",
                         "contents": [
-                            {"type": "text", "text": "รวม WiFi", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{wifi_total} งาน", "size": "xs", "color": "#FFD700", "weight": "bold", "align": "end", "flex": 2}
+                            {"type": "text", "text": "รวม WiFi", "size": "sm", "color": "#4B5563", "weight": "bold", "flex": 4},
+                            {"type": "text", "text": f"{wifi_total} งาน", "size": "sm", "color": "#1D4ED8", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
-                    {"type": "separator", "margin": "lg", "color": "#444444"},
+                    {"type": "separator", "margin": "xl", "color": "#E5E7EB"},
 
                     # SECTION 2: FEMTO
                     {
                         "type": "text",
                         "text": "📱 Femto Cell",
                         "weight": "bold",
-                        "color": "#00E676",
-                        "size": "sm",
-                        "margin": "lg"
+                        "color": "#047857",
+                        "size": "md",
+                        "margin": "xl"
                     },
                     {
                         "type": "box",
                         "layout": "vertical",
-                        "margin": "sm",
+                        "margin": "md",
                         "contents": femto_rows_json
                     },
                     {
                         "type": "box",
                         "layout": "horizontal",
-                        "margin": "md",
+                        "margin": "lg",
                         "contents": [
-                            {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
+                            {"type": "text", "text": "รวม Femto", "size": "sm", "color": "#4B5563", "weight": "bold", "flex": 4},
+                            {"type": "text", "text": f"{femto_total} งาน", "size": "sm", "color": "#047857", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
-                    {"type": "separator", "margin": "lg", "color": "#444444"},
+                    {"type": "separator", "margin": "xl", "color": "#E5E7EB"},
 
                     # GRAND TOTAL
                     {
                         "type": "box",
                         "layout": "horizontal",
-                        "margin": "lg",
+                        "margin": "xl",
                         "contents": [
                             {
                                 "type": "text",
                                 "text": "🔴 งานค้างรวมทั้งหมด",
                                 "weight": "bold",
-                                "color": "#FFFFFF",
-                                "size": "sm",
+                                "color": "#111827",
+                                "size": "md",
                                 "flex": 4
                             },
                             {
                                 "type": "text",
                                 "text": f"{grand_total} งาน",
                                 "weight": "bold",
-                                "color": "#FF3B30",
-                                "size": "md",
+                                "color": "#DC2626",
+                                "size": "xl",
                                 "align": "end",
                                 "flex": 2
                             }
@@ -259,7 +259,7 @@ def create_wifi_flex_message():
             "footer": {
                 "type": "box",
                 "layout": "vertical",
-                "backgroundColor": "#1A1A1A",
+                "backgroundColor": "#F3F4F6",
                 "paddingAll": "md",
                 "contents": [
                     {
