@@ -100,30 +100,51 @@ def is_wifi_or_femto_row(row_str):
     return any(kw in r for kw in wifi_keywords)
 
 def get_processed_data():
-    """ดึงและกรองข้อมูลเฉพาะ 6 เขตพื้นที่ตาม AREA_CONFIG"""
+    # รายการ B-Code ทั้งหมดที่ได้รับอนุญาต (ตามที่ติ๊กเลือกใน Excel)
+ALLOWED_BCODES = ['B104', 'B041', 'B111', 'B112', 'B113']
+
+def is_valid_bcode_row(row_str):
+    """กรองเอาเฉพาะแถวที่มี B-Code ตรงตามที่เลือกไว้ใน Excel"""
+    # สร้าง Pattern เช่น -B104-, -B041-, -B111-, -B112-, -B113- หรือ B104-WIFI
+    for bcode in ALLOWED_BCODES:
+        if re.search(rf'[-_]{bcode}[-_]|\b{bcode}\b', row_str, re.IGNORECASE):
+            return True
+    return False
+
+def get_processed_data():
+    """ดึงข้อมูล และกรองเฉพาะ Node B-Code ที่ติ๊กเลือกใน Excel เท่านั้น"""
     df, source = get_raw_df()
     if df is None:
         return None, source, {}
 
+    # รวมทุกคอลัมน์เพื่อใช้เช็กประเภทงานและ B-Code
     full_row_str = df.apply(lambda row: ' '.join(row), axis=1)
     
+    # 1. กรองว่าเป็น WiFi / Femto
     wifi_mask = full_row_str.apply(is_wifi_or_femto_row)
-    filtered_df = df[wifi_mask].copy()
-    filtered_str = full_row_str[wifi_mask]
+    
+    # 2. กรองเฉพาะแถวที่มี B-Code ตามที่ติ๊กเลือกในรูป (B104, B041, B111, B112, B113)
+    bcode_mask = full_row_str.apply(is_valid_bcode_row)
+    
+    # รวมเงื่อนไขการกรอง
+    filtered_df = df[wifi_mask & bcode_mask].copy()
 
     categorized = {area["id"]: [] for area in AREA_CONFIG}
-    
     records = filtered_df.to_dict(orient="records")
-    for idx, record in enumerate(records):
-        row_text = filtered_str.iloc[idx]
-        
+
+    for record in records:
+        # ดึงข้อความทั้งหมดในแถวมาแมปเข้าเขตพื้นที่
+        row_text = ' '.join(str(v) for v in record.values())
+
         for area in AREA_CONFIG:
-            pattern = '|'.join([re.escape(k) for k in area["keywords"]])
-            if re.search(pattern, row_text, re.IGNORECASE):
-                extracted_ip = extract_ip(' '.join(record.values()))
+            patterns = [re.escape(k) for k in area["keywords"]]
+            pattern_regex = '|'.join(patterns)
+
+            if re.search(pattern_regex, row_text, re.IGNORECASE):
+                extracted_ip = extract_ip(row_text)
                 record['_EXTRACTED_IP'] = extracted_ip
                 categorized[area["id"]].append(record)
-                break
+                break  # จัดเข้าเขตแรกที่เจอ
 
     return filtered_df, source, categorized
 
