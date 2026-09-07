@@ -24,17 +24,42 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 MASTER_EXCEL_FILE = "latest_pending.xlsx"
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AEQSsiLUbr5p6HYh36WNGF9TkUDVeW2xN-vDvDkjy1k/export?format=csv&gid=0"
 
+# อัปเดต AREA_CONFIG ตรงตาม Logic assign_area เรียบร้อยแล้ว
 AREA_CONFIG = [
-    {"id": "area1", "name": "1. พระโขนง / บางจาก (B113)", "keywords": ['B113', 'พระโขนง', 'บางจาก']},
-    {"id": "area2", "name": "2. คลองเตย (B113)", "keywords": ['คลองเตย']},
-    {"id": "area3", "name": "3. วัฒนา / คลองตันเหนือ (B112)", "keywords": ['B112', 'วัฒนา', 'คลองตันเหนือ']},
-    {"id": "area4", "name": "4. ห้วยขวาง / บางกะปิ (B104/B041)", "keywords": ['B104', 'B041', 'ห้วยขวาง', 'บางกะปิ']},
-    {"id": "area5", "name": "5. ลาดพร้าว / จรเข้บัว", "keywords": ['ลาดพร้าว', 'จรเข้บัว']},
-    {"id": "area6", "name": "6. วังทองหลาง / พลับพลา", "keywords": ['วังทองหลาง', 'พลับพลา']}
+    {
+        "id": "area1", 
+        "name": "1. พระโขนง / บางจาก (B113)", 
+        "keywords": ['B113', 'พระโขนง', 'บางจาก', 'True Digital Park']
+    },
+    {
+        "id": "area2", 
+        "name": "2. คลองเตย (B113)", 
+        "keywords": ['คลองเตย', 'กล้วยน้ำไท']
+    },
+    {
+        "id": "area3", 
+        "name": "3. วัฒนา / คลองตันเหนือ (B112)", 
+        "keywords": ['B112', 'วัฒนา', 'คลองตันเหนือ', 'Samitivej', 'Terminal 21']
+    },
+    {
+        "id": "area4", 
+        "name": "4. ห้วยขวาง / บางกะปิ (B104/B041)", 
+        "keywords": ['B104', 'B041', 'ห้วยขวาง', 'บางกะปิ', 'Grand Rama 9']
+    },
+    {
+        "id": "area5", 
+        "name": "5. ลาดพร้าว / จรเข้บัว (B111)", 
+        "keywords": ['B111', 'ลาดพร้าว', 'จรเข้บัว', 'Eastville', 'สตรีวิทยา 2']
+    },
+    {
+        "id": "area6", 
+        "name": "6. วังทองหลาง / พลับพลา", 
+        "keywords": ['วังทองหลาง', 'พลับพลา', 'Lotus Ramintra']
+    }
 ]
 
 def extract_ip(text):
-    """ฟังก์ชันสกัด IP Address จากข้อความทุกรูปแบบ เช่น TRUEWIFI | I82117B – 10.248.89.152 | ..."""
+    """สกัด IP Address จากข้อความทุกรูปแบบ"""
     if not text:
         return "-"
     ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', str(text))
@@ -66,7 +91,7 @@ def get_raw_df():
     return df.fillna("").astype(str), data_source
 
 def is_wifi_or_femto_row(row_str):
-    """กรองเอาเฉพาะ TrueWiFi และ Femto เท่านั้น (ตัด FTTH / Splitter / Corp ออก)"""
+    """กรองเอาเฉพาะ TrueWiFi และ Femto เท่านั้น"""
     r = row_str.lower()
     if 'ftth' in r or 'splitter' in r or 'bma_ftth' in r or 'upc_ftth' in r:
         if 'wifi' not in r and 'femto' not in r and 'truewifi' not in r:
@@ -75,7 +100,7 @@ def is_wifi_or_femto_row(row_str):
     return any(kw in r for kw in wifi_keywords)
 
 def get_processed_data():
-    """ดึงและกรองข้อมูลเฉพาะ 6 เขตพื้นที่เท่านั้น"""
+    """ดึงและกรองข้อมูลเฉพาะ 6 เขตพื้นที่ตาม AREA_CONFIG"""
     df, source = get_raw_df()
     if df is None:
         return None, source, {}
@@ -93,7 +118,7 @@ def get_processed_data():
         row_text = filtered_str.iloc[idx]
         
         for area in AREA_CONFIG:
-            pattern = '|'.join(area["keywords"])
+            pattern = '|'.join([re.escape(k) for k in area["keywords"]])
             if re.search(pattern, row_text, re.IGNORECASE):
                 extracted_ip = extract_ip(' '.join(record.values()))
                 record['_EXTRACTED_IP'] = extracted_ip
@@ -335,7 +360,6 @@ def liff_page():
 
             async function initLIFF() {{
                 try {{
-                    // ตั้งค่า Timeout 3 วิ ป้องกัน iOS ค้างกรณี LIFF SDK โหลดไม่สำเร็จ
                     const liffPromise = liff.init({{ liffId: "{LIFF_ID}" }});
                     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("LIFF Init Timeout")), 3000));
                     await Promise.race([liffPromise, timeoutPromise]);
@@ -489,7 +513,6 @@ def liff_page():
             function copyToClipboard(encodedText, btn) {{
                 const text = decodeURIComponent(encodedText);
                 
-                // Fallback สำหรับ iPhone / Safari Clipboard API
                 if (navigator.clipboard && window.isSecureContext) {{
                     navigator.clipboard.writeText(text).then(() => updateBtnState(btn)).catch(() => fallbackCopy(text, btn));
                 }} else {{
