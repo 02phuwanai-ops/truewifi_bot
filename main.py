@@ -37,7 +37,6 @@ def extract_ip(text):
     """ฟังก์ชันสกัด IP Address จากข้อความทุกรูปแบบ เช่น TRUEWIFI | I82117B – 10.248.89.152 | ..."""
     if not text:
         return "-"
-    # Match IP address Pattern xxx.xxx.xxx.xxx
     ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', str(text))
     if ip_match:
         return ip_match.group(0)
@@ -83,7 +82,6 @@ def get_processed_data():
 
     full_row_str = df.apply(lambda row: ' '.join(row), axis=1)
     
-    # Filter 1: เอาเฉพาะ TrueWiFi / Femto
     wifi_mask = full_row_str.apply(is_wifi_or_femto_row)
     filtered_df = df[wifi_mask].copy()
     filtered_str = full_row_str[wifi_mask]
@@ -94,16 +92,13 @@ def get_processed_data():
     for idx, record in enumerate(records):
         row_text = filtered_str.iloc[idx]
         
-        # ค้นหาว่าอยู่เขตไหนใน 6 เขต
         for area in AREA_CONFIG:
             pattern = '|'.join(area["keywords"])
             if re.search(pattern, row_text, re.IGNORECASE):
-                # สกัด IP หากใน record ไม่มี IP หรือ IP เป็นค่าว่าง
                 extracted_ip = extract_ip(' '.join(record.values()))
                 record['_EXTRACTED_IP'] = extracted_ip
-                
                 categorized[area["id"]].append(record)
-                break  # แมตช์เข้าเขตแรก แล้วหยุดเลย (ป้องกันการนับซ้ำ)
+                break
 
     return filtered_df, source, categorized
 
@@ -122,7 +117,6 @@ def create_wifi_flex_message():
         for area in AREA_CONFIG:
             items = categorized.get(area["id"], [])
             
-            # แยกนับ WiFi กับ Femto ในแต่ละเขต
             count_femto = sum(1 for item in items if 'femto' in ' '.join(item.values()).lower())
             count_wifi = len(items) - count_femto
 
@@ -272,24 +266,23 @@ def liff_page():
     <html lang="th">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
         <title>รายละเอียดงานค้าง True WiFi</title>
         <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
         <style>
-            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-            html, body {{ width: 100%; min-height: 100vh; background-color: #121212; color: #E0E0E0; padding: 0; font-size: 14px; overflow-x: hidden; }}
+            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }}
+            html, body {{ width: 100vw; min-height: 100vh; background-color: #121212; color: #E0E0E0; padding: 0; margin: 0; font-size: 14px; overflow-x: hidden; }}
             
-            .container {{ width: 100%; padding: 8px 6px; }}
+            .container {{ width: 100%; max-width: 100%; padding: 8px 8px 24px 8px; }}
             
-            .header {{ position: sticky; top: 0; background-color: #121212; padding: 10px 8px; z-index: 100; border-bottom: 1px solid #222; margin-bottom: 10px; width: 100%; }}
+            .header {{ position: -webkit-sticky; position: sticky; top: 0; background-color: #121212; padding: 12px 10px; z-index: 100; border-bottom: 1px solid #222; width: 100%; }}
             .title {{ color: #00E676; font-size: 16px; font-weight: bold; margin-bottom: 8px; text-align: center; }}
-            .search-box {{ width: 100%; padding: 12px 14px; border-radius: 8px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 14px; outline: none; }}
+            .search-box {{ width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 14px; outline: none; -webkit-appearance: none; }}
             .search-box:focus {{ border-color: #00E676; }}
             .count-info {{ margin-top: 6px; font-size: 12px; color: #00E676; text-align: right; font-weight: bold; }}
             
-            /* Accordion Group Style */
             .area-group {{ width: 100%; margin-bottom: 10px; border-radius: 8px; overflow: hidden; border: 1px solid #2C2C2E; background-color: #18181A; }}
-            .area-header {{ width: 100%; padding: 14px 10px; background-color: #222225; color: #FFF; font-weight: bold; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }}
+            .area-header {{ width: 100%; padding: 12px 10px; background-color: #222225; color: #FFF; font-weight: bold; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }}
             .area-header:active {{ background-color: #2C2C30; }}
             .area-badge {{ background-color: #00E676; color: #000; font-size: 12px; padding: 2px 8px; border-radius: 12px; font-weight: bold; }}
             .area-badge.zero {{ background-color: #333; color: #777; }}
@@ -299,11 +292,10 @@ def liff_page():
             .area-content {{ display: none; padding: 8px 4px; }}
             .area-group.open .area-content {{ display: block; }}
 
-            /* Card Style - 100% Full Width */
-            .card {{ width: 100%; background-color: #1C1C1E; border-radius: 8px; padding: 10px 10px; margin-bottom: 8px; border: 1px solid #2A2A2D; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }}
+            .card {{ width: 100%; background-color: #1C1C1E; border-radius: 8px; padding: 10px; margin-bottom: 8px; border: 1px solid #2A2A2D; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }}
             
             .card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; }}
-            .ticket-badge {{ font-family: monospace; font-size: 14px; font-weight: bold; color: #FFD700; word-break: break-all; }}
+            .ticket-badge {{ font-family: monospace, sans-serif; font-size: 14px; font-weight: bold; color: #FFD700; word-break: break-all; }}
             .type-badge {{ font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; flex-shrink: 0; }}
             .badge-wifi {{ background-color: rgba(255, 215, 0, 0.15); color: #FFD700; border: 1px solid #FFD700; }}
             .badge-femto {{ background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid #00E676; }}
@@ -311,18 +303,18 @@ def liff_page():
             .subject-box {{ background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 12px; color: #E2E2E2; margin-bottom: 8px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }}
             .subject-label {{ color: #888; font-size: 10px; font-weight: bold; display: block; margin-bottom: 2px; }}
 
-            .grid-container {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 8px; background-color: #141416; padding: 8px 10px; border-radius: 6px; }}
+            .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; background-color: #141416; padding: 8px 10px; border-radius: 6px; }}
             
-            .grid-item {{ display: flex; flex-direction: column; }}
+            .grid-item {{ display: flex; flex-direction: column; overflow: hidden; }}
             .item-label {{ font-size: 10px; color: #888; margin-bottom: 2px; text-transform: uppercase; }}
             .item-val {{ font-size: 12px; color: #FFF; font-weight: 500; word-break: break-all; }}
-            .item-val.ip {{ font-family: monospace; color: #64B5F6; font-weight: bold; }}
+            .item-val.ip {{ font-family: monospace, sans-serif; color: #64B5F6; font-weight: bold; }}
             .item-val.status {{ color: #00E676; font-weight: bold; }}
             .item-val.severity {{ color: #FF5252; font-weight: bold; }}
 
-            .btn-copy {{ display: block; width: 100%; padding: 9px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
+            .btn-copy {{ display: block; width: 100%; padding: 10px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; -webkit-appearance: none; }}
             .btn-copy:active {{ background-color: #00E676; color: #000; }}
-            .loading {{ text-align: center; padding: 40px; color: #888; font-size: 14px; }}
+            .loading {{ text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }}
         </style>
     </head>
     <body>
@@ -343,11 +335,15 @@ def liff_page():
 
             async function initLIFF() {{
                 try {{
-                    await liff.init({{ liffId: "{LIFF_ID}" }});
+                    // ตั้งค่า Timeout 3 วิ ป้องกัน iOS ค้างกรณี LIFF SDK โหลดไม่สำเร็จ
+                    const liffPromise = liff.init({{ liffId: "{LIFF_ID}" }});
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("LIFF Init Timeout")), 3000));
+                    await Promise.race([liffPromise, timeoutPromise]);
                 }} catch (err) {{
-                    console.log("LIFF Init Error:", err);
+                    console.warn("LIFF Init Fallback:", err);
+                }} finally {{
+                    fetchData();
                 }}
-                fetchData();
             }}
 
             async function fetchData() {{
@@ -360,7 +356,7 @@ def liff_page():
                     
                     renderAccordion(categorizedData);
                 }} catch (e) {{
-                    document.getElementById('accordionContainer').innerHTML = '<div style="color:#FF5252; text-align:center;">❌ ไม่สามารถโหลดข้อมูลได้</div>';
+                    document.getElementById('accordionContainer').innerHTML = '<div style="color:#FF5252; text-align:center; padding:20px;">❌ ไม่สามารถโหลดข้อมูลได้</div>';
                 }}
             }}
 
@@ -387,7 +383,6 @@ def liff_page():
                 let ticket = getVal(item, ['TICKETID', 'TICKET_ID', 'TICKET', 'WOA', 'INCIDENT']) || '-';
                 let subject = getVal(item, ['SUBJECT', 'TITLE', 'DESCRIPTION', 'SUMMARY']) || '-';
                 
-                // สกัด IP Address ให้เป๊ะที่สุด (ตรวจจาก Field IP ก่อน ถ้าไม่มี ให้สกัดจาก Subject/JSON)
                 let ip = getVal(item, ['IP', 'IP_ADDRESS', 'IPADDRESS', 'HOST_IP', '_EXTRACTED_IP']);
                 if (!ip || ip === '-') {{
                     ip = extractIpFromString(subject !== '-' ? subject : jsonStr);
@@ -442,7 +437,6 @@ def liff_page():
                 let displayTotal = 0;
                 let html = '';
 
-                // วนเฉพาะ 6 เขตพื้นที่เท่านั้น
                 areaConfig.forEach(area => {{
                     const items = currentData[area.id] || [];
                     displayTotal += items.length;
@@ -494,17 +488,42 @@ def liff_page():
 
             function copyToClipboard(encodedText, btn) {{
                 const text = decodeURIComponent(encodedText);
-                navigator.clipboard.writeText(text).then(() => {{
-                    const origText = btn.innerText;
-                    btn.innerText = '✅ คัดลอกเรียบร้อย!';
-                    btn.style.backgroundColor = '#00E676';
-                    btn.style.color = '#000';
-                    setTimeout(() => {{
-                        btn.innerText = origText;
-                        btn.style.backgroundColor = '#2A2A2E';
-                        btn.style.color = '#DDD';
-                    }}, 1500);
-                }});
+                
+                // Fallback สำหรับ iPhone / Safari Clipboard API
+                if (navigator.clipboard && window.isSecureContext) {{
+                    navigator.clipboard.writeText(text).then(() => updateBtnState(btn)).catch(() => fallbackCopy(text, btn));
+                }} else {{
+                    fallbackCopy(text, btn);
+                }}
+            }}
+
+            function fallbackCopy(text, btn) {{
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.opacity = "0";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {{
+                    document.execCommand('copy');
+                    updateBtnState(btn);
+                }} catch (err) {{
+                    alert('ไม่สามารถคัดลอกได้');
+                }}
+                document.body.removeChild(textArea);
+            }}
+
+            function updateBtnState(btn) {{
+                const origText = btn.innerText;
+                btn.innerText = '✅ คัดลอกเรียบร้อย!';
+                btn.style.backgroundColor = '#00E676';
+                btn.style.color = '#000';
+                setTimeout(() => {{
+                    btn.innerText = origText;
+                    btn.style.backgroundColor = '#2A2A2E';
+                    btn.style.color = '#DDD';
+                }}, 1500);
             }}
 
             window.onload = initLIFF;
