@@ -1,5 +1,4 @@
 import os
-import re
 import pandas as pd
 from fastapi import FastAPI, Request, Response, status
 from linebot.v3 import WebhookHandler
@@ -22,7 +21,7 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 MASTER_EXCEL_FILE = "latest_pending.xlsx"
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AEQSsiLUbr5p6HYh36WNGF9TkUDVeW2xN-vDvDkjy1k/export?format=csv&gid=0"
 
-# นิยาม 6 เขตรับผิดชอบ และ Keywords ที่ใช้ค้นหาทั้ง รหัส B-Code และ ชื่อเขตภาษาไทย
+# นิยาม 6 เขตรับผิดชอบและ Keyword สำหรับค้นหา
 AREA_KEYWORDS = {
     '1. พระโขนง / บางจาก (B113)': ['B113', 'พระโขนง', 'บางจาก'],
     '2. คลองเตย (B113)': ['คลองเตย'],
@@ -36,14 +35,14 @@ def get_summary_report():
     df = None
     data_source = ""
 
-    # 1. พยายามอ่านข้อมูลสดจาก Google Sheet
+    # 1. พยายามอ่านข้อมูลจาก Google Sheet
     try:
         df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
         data_source = "Google Sheet"
     except Exception as e:
         print(f"Error fetching Google Sheet: {e}")
 
-    # 2. อ่านจากไฟล์ Excel สำรองกรณี Google Sheet ดึงไม่ได้
+    # 2. หากอ่าน Google Sheet ไม่สำเร็จ ให้ใช้อ่านจากไฟล์ Excel สำรอง
     if df is None or df.empty:
         if os.path.exists(MASTER_EXCEL_FILE):
             try:
@@ -52,35 +51,11 @@ def get_summary_report():
             except Exception as e:
                 return f"❌ อ่านไฟล์สำรองไม่สำเร็จ: {str(e)}"
         else:
-            return "⚠️ ดึง Google Sheet ไม่สำเร็จ (โปรดเปิดสิทธิ์ แชร์แบบทุกคนที่มีลิงก์) และไม่มีไฟล์ Excel สำรอง"
+            return "⚠️ ดึง Google Sheet ไม่สำเร็จ และไม่มีไฟล์ Excel สำรอง"
 
     try:
-        # แปลงชื่อคอลัมน์ให้เป็นตัวพิมพ์ใหญ่และตัดช่องว่าง
-        df.columns = [str(col).strip().upper() for col in df.columns]
-
-        # รวมคอลัมน์สำคัญ (CATEGORIES, TRUEOWNERGROUP, DISTRICT, SUBDISTRICT, SUBJECT) เพื่อใช้ค้นหา
-        search_cols = ['CATEGORIES', 'TRUEOWNERGROUP', 'DISTRICT', 'SUBDISTRICT', 'SUBJECT']
-        for col in search_cols:
-            if col not in df.columns:
-                df[col] = ""
-
-        # กรองเฉพาะงานประเภท WIFI
-        wifi_mask = (
-            df['CATEGORIES'].astype(str).str.contains('WIFI', case=False, na=False) |
-            df['TRUEOWNERGROUP'].astype(str).str.contains('WIFI', case=False, na=False)
-        )
-        wifi_df = df[wifi_mask]
-
-        if wifi_df.empty:
-            wifi_df = df
-
-        # สร้างข้อความรวมรายแถวเพื่อใช้ค้นหาตาม Keyword ของแต่ละเขต
-        wifi_search_series = (
-            wifi_df['TRUEOWNERGROUP'].astype(str) + " " +
-            wifi_df['DISTRICT'].astype(str) + " " +
-            wifi_df['SUBDISTRICT'].astype(str) + " " +
-            wifi_df['SUBJECT'].astype(str)
-        )
+        # แปลงข้อมูลในแต่ละแถวให้เป็น String รวมกันทุกคอลัมน์ เพื่อให้ค้นหาได้อย่างครอบคลุม
+        full_row_text = df.astype(str).apply(lambda row: ' '.join(row), axis=1)
 
         summary_text = f"📊 สรุป True WiFi Ticket ค้างซ่อม ({data_source})\n"
         summary_text += "-------------------------------------------\n"
@@ -89,8 +64,9 @@ def get_summary_report():
 
         for area_name, keywords in AREA_KEYWORDS.items():
             pattern = '|'.join(keywords)
-            matched = wifi_df[wifi_search_series.str.contains(pattern, case=False, na=False, regex=True)]
-            count = len(matched)
+            # ค้นหาคำในแถวข้อมูลทั้งหมดโดยไม่เกี่ยงว่าเป็นคอลัมน์ไหน
+            matched_rows = full_row_text.str.contains(pattern, case=False, na=False)
+            count = matched_rows.sum()
             total_all_areas += count
             summary_text += f"{area_name}:  {count} งาน\n"
             
@@ -120,7 +96,7 @@ async def callback(request: Request):
 
 @handler.add(MessageEvent)
 def handle_message(event):
-    # ตอบกลับเฉพาะคำว่า 'wifi' เท่านั้น
+    # ตอบกลับเฉพาะเมื่อพิมพ์ 'wifi'
     if isinstance(event.message, TextMessageContent):
         user_msg = event.message.text.strip().lower()
         if user_msg == "wifi":
@@ -137,6 +113,7 @@ def handle_message(event):
             except Exception as e:
                 print(f"Error sending LINE message: {e}")
 
+    # รองรับการอัปโหลดไฟล์ Excel สำรองทาง LINE
     elif isinstance(event.message, FileMessageContent) or getattr(event.message, 'type', None) == "file":
         file_name = getattr(event.message, 'file_name', 'data.xlsx')
         if file_name.lower().endswith(('.xlsx', '.xls')):
