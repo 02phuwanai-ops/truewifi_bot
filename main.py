@@ -67,7 +67,6 @@ def create_wifi_flex_message():
             count = int(matched_rows.sum())
             total_all_areas += count
 
-            # สร้างส่วนแสดงผลแต่ละเขตใน Flex
             area_rows_json.append({
                 "type": "box",
                 "layout": "horizontal",
@@ -93,7 +92,6 @@ def create_wifi_flex_message():
                 "margin": "md"
             })
 
-        # โครงสร้าง Flex Message JSON (Modern Dark / True Red)
         flex_json = {
             "type": "bubble",
             "size": "mega",
@@ -219,6 +217,7 @@ async def callback(request: Request):
 
 @handler.add(MessageEvent)
 def handle_message(event):
+    # ตรวจสอบข้อความตัวหนังสือ (รองรับทั้งกลุ่มและแชทส่วนตัว)
     if isinstance(event.message, TextMessageContent):
         user_msg = event.message.text.strip().lower()
         if user_msg == "wifi":
@@ -235,6 +234,7 @@ def handle_message(event):
             except Exception as e:
                 print(f"Error sending LINE message: {e}")
 
+    # รองรับการส่งไฟล์ Excel สำรอง
     elif isinstance(event.message, FileMessageContent) or getattr(event.message, 'type', None) == "file":
         file_name = getattr(event.message, 'file_name', 'data.xlsx')
         if file_name.lower().endswith(('.xlsx', '.xls')):
