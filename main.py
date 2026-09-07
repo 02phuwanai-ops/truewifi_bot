@@ -24,7 +24,9 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 MASTER_EXCEL_FILE = "latest_pending.xlsx"
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AEQSsiLUbr5p6HYh36WNGF9TkUDVeW2xN-vDvDkjy1k/export?format=csv&gid=0"
 
-# อัปเดต AREA_CONFIG ตรงตาม Logic assign_area เรียบร้อยแล้ว
+# รายการ B-Code ทั้งหมดที่ได้รับอนุญาต
+ALLOWED_BCODES = ['B104', 'B041', 'B111', 'B112', 'B113']
+
 AREA_CONFIG = [
     {
         "id": "area1", 
@@ -99,20 +101,15 @@ def is_wifi_or_femto_row(row_str):
     wifi_keywords = ['truewifi', 'wifi', 'femto', 'ap down', 'ap_down', 'i92', 'i91', 'i93', 'i82']
     return any(kw in r for kw in wifi_keywords)
 
-def get_processed_data():
-    # รายการ B-Code ทั้งหมดที่ได้รับอนุญาต (ตามที่ติ๊กเลือกใน Excel)
-ALLOWED_BCODES = ['B104', 'B041', 'B111', 'B112', 'B113']
-
 def is_valid_bcode_row(row_str):
-    """กรองเอาเฉพาะแถวที่มี B-Code ตรงตามที่เลือกไว้ใน Excel"""
-    # สร้าง Pattern เช่น -B104-, -B041-, -B111-, -B112-, -B113- หรือ B104-WIFI
+    """กรองเอาเฉพาะแถวที่มี B-Code ตรงตามที่เลือกไว้"""
     for bcode in ALLOWED_BCODES:
         if re.search(rf'[-_]{bcode}[-_]|\b{bcode}\b', row_str, re.IGNORECASE):
             return True
     return False
 
 def get_processed_data():
-    """ดึงข้อมูล และกรองเฉพาะ Node B-Code ที่ติ๊กเลือกใน Excel เท่านั้น"""
+    """ดึงข้อมูล และกรองเฉพาะ Node B-Code ที่อนุญาตเท่านั้น"""
     df, source = get_raw_df()
     if df is None:
         return None, source, {}
@@ -123,7 +120,7 @@ def get_processed_data():
     # 1. กรองว่าเป็น WiFi / Femto
     wifi_mask = full_row_str.apply(is_wifi_or_femto_row)
     
-    # 2. กรองเฉพาะแถวที่มี B-Code ตามที่ติ๊กเลือกในรูป (B104, B041, B111, B112, B113)
+    # 2. กรองเฉพาะแถวที่มี B-Code ตามที่กำหนด
     bcode_mask = full_row_str.apply(is_valid_bcode_row)
     
     # รวมเงื่อนไขการกรอง
@@ -133,7 +130,6 @@ def get_processed_data():
     records = filtered_df.to_dict(orient="records")
 
     for record in records:
-        # ดึงข้อความทั้งหมดในแถวมาแมปเข้าเขตพื้นที่
         row_text = ' '.join(str(v) for v in record.values())
 
         for area in AREA_CONFIG:
@@ -144,7 +140,7 @@ def get_processed_data():
                 extracted_ip = extract_ip(row_text)
                 record['_EXTRACTED_IP'] = extracted_ip
                 categorized[area["id"]].append(record)
-                break  # จัดเข้าเขตแรกที่เจอ
+                break
 
     return filtered_df, source, categorized
 
