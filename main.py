@@ -24,8 +24,8 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 MASTER_EXCEL_FILE = "latest_pending.xlsx"
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AEQSsiLUbr5p6HYh36WNGF9TkUDVeW2xN-vDvDkjy1k/export?format=csv&gid=0"
 
-# รายการ B-Code ทั้งหมดที่ได้รับอนุญาต
-ALLOWED_BCODES = ['B104', 'B041', 'B111', 'B112', 'B113']
+# รายการ B-Code ทั้งหมดที่ได้รับอนุญาต (ตัด B041 ออกเรียบร้อย)
+ALLOWED_BCODES = ['B104', 'B111', 'B112', 'B113']
 
 AREA_CONFIG = [
     {
@@ -45,8 +45,8 @@ AREA_CONFIG = [
     },
     {
         "id": "area4", 
-        "name": "4. ห้วยขวาง / บางกะปิ (B104/B041)", 
-        "keywords": ['B104', 'B041', 'ห้วยขวาง', 'บางกะปิ', 'Grand Rama 9']
+        "name": "4. ห้วยขวาง (B104)", 
+        "keywords": ['B104', 'ห้วยขวาง', 'Grand Rama 9']  # ตัด 'บางกะปิ' และ 'B041' ออกแล้ว
     },
     {
         "id": "area5", 
@@ -168,19 +168,19 @@ def create_wifi_flex_message():
             wifi_rows_json.append({
                 "type": "box", "layout": "horizontal",
                 "contents": [
-                    {"type": "text", "text": area["name"], "size": "xs", "color": "#DDDDDD", "flex": 4, "wrap": True},
-                    {"type": "text", "text": f"{count_wifi} งาน", "size": "xs", "color": "#FFD700" if count_wifi > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
+                    {"type": "text", "text": area["name"], "size": "sm", "color": "#DDDDDD", "flex": 4, "wrap": True},
+                    {"type": "text", "text": f"{count_wifi} งาน", "size": "sm", "color": "#FFD700" if count_wifi > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
                 ],
-                "margin": "sm"
+                "margin": "xs"
             })
 
             femto_rows_json.append({
                 "type": "box", "layout": "horizontal",
                 "contents": [
-                    {"type": "text", "text": area["name"], "size": "xs", "color": "#DDDDDD", "flex": 4, "wrap": True},
-                    {"type": "text", "text": f"{count_femto} งาน", "size": "xs", "color": "#00E676" if count_femto > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
+                    {"type": "text", "text": area["name"], "size": "sm", "color": "#DDDDDD", "flex": 4, "wrap": True},
+                    {"type": "text", "text": f"{count_femto} งาน", "size": "sm", "color": "#00E676" if count_femto > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
                 ],
-                "margin": "sm"
+                "margin": "xs"
             })
 
         grand_total = wifi_total + femto_total
@@ -193,7 +193,7 @@ def create_wifi_flex_message():
                 "type": "box",
                 "layout": "vertical",
                 "backgroundColor": "#1A1A1A",
-                "paddingAll": "lg",
+                "paddingAll": "md",
                 "contents": [
                     {
                         "type": "box", "layout": "horizontal",
@@ -202,37 +202,37 @@ def create_wifi_flex_message():
                             {"type": "text", "text": f"Source: {data_source}", "size": "xs", "color": "#888888", "align": "end"}
                         ]
                     },
-                    {"type": "text", "text": "สรุปงานค้างซ่อมประจำเขต", "weight": "bold", "size": "xl", "color": "#FFFFFF", "margin": "sm"}
+                    {"type": "text", "text": "สรุปงานค้างซ่อมประจำเขต", "weight": "bold", "size": "lg", "color": "#FFFFFF", "margin": "xs"}
                 ]
             },
             "body": {
                 "type": "box",
                 "layout": "vertical",
                 "backgroundColor": "#242424",
-                "paddingAll": "lg",
+                "paddingAll": "md",
                 "contents": [
                     {"type": "text", "text": "📶 True WiFi", "weight": "bold", "color": "#FFD700", "size": "sm"},
-                    {"type": "box", "layout": "vertical", "margin": "sm", "contents": wifi_rows_json},
+                    {"type": "box", "layout": "vertical", "margin": "xs", "contents": wifi_rows_json},
                     {
-                        "type": "box", "layout": "horizontal", "margin": "md",
+                        "type": "box", "layout": "horizontal", "margin": "sm",
                         "contents": [
                             {"type": "text", "text": "รวม WiFi", "size": "xs", "color": "#AAAAAA", "flex": 4},
                             {"type": "text", "text": f"{wifi_total} งาน", "size": "xs", "color": "#FFD700", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
-                    {"type": "separator", "margin": "lg", "color": "#444444"},
-                    {"type": "text", "text": "📱 Femto Cell", "weight": "bold", "color": "#00E676", "size": "sm", "margin": "lg"},
-                    {"type": "box", "layout": "vertical", "margin": "sm", "contents": femto_rows_json},
+                    {"type": "separator", "margin": "md", "color": "#444444"},
+                    {"type": "text", "text": "📱 Femto Cell", "weight": "bold", "color": "#00E676", "size": "sm", "margin": "md"},
+                    {"type": "box", "layout": "vertical", "margin": "xs", "contents": femto_rows_json},
                     {
-                        "type": "box", "layout": "horizontal", "margin": "md",
+                        "type": "box", "layout": "horizontal", "margin": "sm",
                         "contents": [
                             {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
                             {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
-                    {"type": "separator", "margin": "lg", "color": "#444444"},
+                    {"type": "separator", "margin": "md", "color": "#444444"},
                     {
-                        "type": "box", "layout": "horizontal", "margin": "lg",
+                        "type": "box", "layout": "horizontal", "margin": "md",
                         "contents": [
                             {"type": "text", "text": "🔴 งานค้างรวมทั้งหมด", "weight": "bold", "color": "#FFFFFF", "size": "sm", "flex": 4},
                             {"type": "text", "text": f"{grand_total} งาน", "weight": "bold", "color": "#FF3B30", "size": "md", "align": "end", "flex": 2}
@@ -244,8 +244,8 @@ def create_wifi_flex_message():
                 "type": "box",
                 "layout": "vertical",
                 "backgroundColor": "#1A1A1A",
-                "paddingAll": "md",
-                "spacing": "sm",
+                "paddingAll": "sm",
+                "spacing": "xs",
                 "contents": [
                     {
                         "type": "button",
@@ -266,7 +266,7 @@ def create_wifi_flex_message():
                             "text": "wifi"
                         },
                         "style": "secondary",
-                        "color": "#444444",
+                        "color": "#333333",
                         "height": "sm"
                     }
                 ]
