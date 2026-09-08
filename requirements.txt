@@ -4,3 +4,4 @@ pandas
 openpyxl
 line-bot-sdk
 beautifulsoup4
+curl-cffi
