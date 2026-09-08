@@ -1,8 +1,8 @@
 import os
 import re
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
+from curl_cffi import requests
 from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -73,18 +73,17 @@ AREA_CONFIG = [
     }
 ]
 
-# --- Global Session Management for pingap ---
-session = requests.Session()
-# ปลอมแปลง User-Agent และ Headers ให้เหมือน Browser จริงเพื่อลดโอกาสติด Cloudflare Block
+# --- Global Session Management via curl_cffi ---
+# ใช้ impersonate="chrome120" เพื่อข้าม Cloudflare TLS Fingerprinting Check
+session = requests.Session(impersonate="chrome120")
 session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9,th;q=0.8",
-    "Referer": "https://pingap.truecorp.co.th/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+    "Referer": f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
 })
 
 def login_to_pingap():
-    """ทำการ Login เข้าสู่ระบบ pingap.truecorp.co.th เพื่อเก็บ Session Cookie"""
+    """ทำการ Login เข้าสู่ระบบ pingap.truecorp.co.th ด้วย curl_cffi เพื่อเก็บ Session Cookie"""
     login_url = f"{PINGAP_BASE_URL}/login"
     login_data = {
         "username": PINGAP_USER,
@@ -93,9 +92,15 @@ def login_to_pingap():
         "submit": "Login"
     }
     try:
-        resp = session.post(login_url, data=login_data, timeout=10)
+        resp = session.post(login_url, data=login_data, timeout=12)
+        
+        # ตรวจเช็กการบล็อกของ Cloudflare ในขั้นตอน Login
+        if "cf-mitigated" in resp.headers or "Just a moment..." in resp.text:
+            print("❌ Login blocked by Cloudflare Challenge")
+            return False
+
         if resp.status_code == 200:
-            print("✅ Login to pingap successfully")
+            print("✅ Login to pingap successfully via curl_cffi")
             return True
         else:
             print(f"⚠️ Login status code: {resp.status_code}")
@@ -126,10 +131,14 @@ def get_raw_df():
     df = None
     data_source = ""
     try:
-        df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
-        data_source = "Google Sheet"
+        # ใช้ curl_cffi โหลด Google Sheet เพื่อป้องกันการถูกปฏิเสธ Request
+        res = session.get(GOOGLE_SHEET_CSV_URL, timeout=10)
+        if res.status_code == 200:
+            from io import StringIO
+            df = pd.read_csv(StringIO(res.text))
+            data_source = "Google Sheet"
     except Exception as e:
-        print(f"Error fetching Google Sheet: {e}")
+        print(f"Error fetching Google Sheet via curl_cffi: {e}")
 
     if df is None or df.empty:
         if os.path.exists(MASTER_EXCEL_FILE):
@@ -268,7 +277,7 @@ def create_wifi_flex_message():
                         "type": "box", "layout": "horizontal", "margin": "sm",
                         "contents": [
                             {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{count_femto if 'count_femto' in locals() else femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
+                            {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
                     {"type": "separator", "margin": "md", "color": "#444444"},
@@ -329,7 +338,6 @@ async def webhook_handler(request: Request):
 def handle_text_message(event: MessageEvent):
     user_text = event.message.text.strip().lower()
     
-    # เมื่อพิมพ์ "wifi" หรือ "งานค้าง" ให้ตอบกลับด้วย Flex Message สรุปรายงาน
     if user_text in ["wifi", "งานค้าง", "report", "สรุป"]:
         reply_msg = create_wifi_flex_message()
     else:
@@ -366,7 +374,7 @@ def get_pending_data_api():
 
 @app.post("/api/ping_test")
 def ping_test_api(req: PingRequest):
-    """ยิง Request ไปที่ pingap.truecorp.co.th/test เพื่อสอบถามสถานะ Ping"""
+    """ยิง Request ไปที่ pingap.truecorp.co.th/test ผ่าน curl_cffi"""
     payload = {
         "emp_id": req.emp_id,
         "circuit": req.circuit,
@@ -375,12 +383,12 @@ def ping_test_api(req: PingRequest):
     }
     
     try:
-        resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=10)
+        resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=12)
         
-        # กรณี Session หลุดหรือหมดอายุ ให้ Auto-Login ใหม่ แล้วยิงซ้ำ
-        if "login" in resp.url.lower() or "login" in resp.text.lower():
-            login_to_pingap()
-            resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=10)
+        # ตรวจสอบว่าถูก Cloudflare หรือ Login Redirection กั้นอยู่หรือไม่
+        if "login" in resp.url.lower() or "login" in resp.text.lower() or "just a moment..." in resp.text.lower():
+            if login_to_pingap():
+                resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=12)
 
         html_text = resp.text.lower()
         
@@ -396,7 +404,7 @@ def ping_test_api(req: PingRequest):
 
 @app.post("/api/get_ap_config")
 def get_ap_config_api(req: ConfigRequest):
-    """ดึง AP Config Template และสถานที่ติดตั้งจริงผ่าน Session (ปรับปรุงรองรับ Cloudflare / หน้า ASP ใหม่)"""
+    """ดึง AP Config Template ผ่าน curl_cffi รองรับ Cloudflare และระบบ Auto-Login"""
     target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
     
     payload = {
@@ -410,8 +418,13 @@ def get_ap_config_api(req: ConfigRequest):
     try:
         resp = session.post(target_url, data=payload, timeout=15)
         
-        # ตรวจสอบว่าถูก Cloudflare บล็อกหรือไม่
-        if "Attention Required!" in resp.text or "Cloudflare" in resp.text:
+        # เช็กกรณีติด Auto-Login / Session หมดอายุ
+        if "login" in resp.url.lower() or "login" in resp.text.lower():
+            if login_to_pingap():
+                resp = session.post(target_url, data=payload, timeout=15)
+
+        # ตรวจสอบการบล็อกของ Cloudflare WAF / Challenge Page
+        if "Attention Required!" in resp.text or "Cloudflare" in resp.text or "Just a moment..." in resp.text:
             return {
                 "status": "error",
                 "capwap_config": "❌ Request ถูก Cloudflare บล็อก (Cloudflare WAF Blocked)",
