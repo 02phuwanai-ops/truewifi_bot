@@ -1,8 +1,11 @@
 import os
 import re
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -13,10 +16,14 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, FileMessageCon
 
 app = FastAPI()
 
-# Configs & Variables
+# --- Configs & Credentials ---
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 LIFF_ID = os.getenv("LIFF_ID", "2011484465-jzxyGhG1")
+
+PINGAP_BASE_URL = "https://pingap.truecorp.co.th"
+PINGAP_USER = os.getenv("PINGAP_USER", "VDWW2097")
+PINGAP_PASS = os.getenv("PINGAP_PASS", "MaX@3063306330633063")
 
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -24,7 +31,6 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 MASTER_EXCEL_FILE = "latest_pending.xlsx"
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1AEQSsiLUbr5p6HYh36WNGF9TkUDVeW2xN-vDvDkjy1k/export?format=csv&gid=0"
 
-# รายการ B-Code ทั้งหมดที่ได้รับอนุญาต (ตัด B041 ออกเรียบร้อย)
 ALLOWED_BCODES = ['B104', 'B111', 'B112', 'B113']
 
 AREA_CONFIG = [
@@ -47,10 +53,7 @@ AREA_CONFIG = [
         "id": "area4", 
         "name": "4. ห้วยขวาง", 
         "keywords": [
-            # 🎯 เพิ่ม Circuit ID จากรูปโดยตรง
             'I04964B', 'I80780B', 
-            
-            # Keywords สถานที่เดิม
             'ห้วยขวาง', 'Grand Rama 9', 'Grand Rama9', 
             'Central Plaza Grand Rama 9', 'Bangkok Hospital Research Center',
             'พระราม 9', 'พระราม๙', 'พระราม9', 
@@ -70,8 +73,44 @@ AREA_CONFIG = [
     }
 ]
 
+# --- Global Session Management for pingap ---
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+})
+
+def login_to_pingap():
+    """ทำการ Login เข้าสู่ระบบ pingap.truecorp.co.th เพื่อเก็บ Session Cookie"""
+    login_url = f"{PINGAP_BASE_URL}/login"
+    login_data = {
+        "username": PINGAP_USER,
+        "password": PINGAP_PASS,
+        "system": "CLLs",
+        "submit": "Login"
+    }
+    try:
+        resp = session.post(login_url, data=login_data, timeout=10)
+        if resp.status_code == 200:
+            print("✅ Login to pingap successfully")
+            return True
+        else:
+            print(f"⚠️ Login status code: {resp.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Login error: {e}")
+        return False
+
+# --- Pydantic Request Models ---
+class PingRequest(BaseModel):
+    ip: str
+    emp_id: str = "VDWW2097"
+    circuit: str = "Circuit"
+
+class ConfigRequest(BaseModel):
+    ip: str
+
+# --- Helper Functions ---
 def extract_ip(text):
-    """สกัด IP Address จากข้อความทุกรูปแบบ"""
     if not text:
         return "-"
     ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', str(text))
@@ -80,7 +119,6 @@ def extract_ip(text):
     return "-"
 
 def get_raw_df():
-    """ดึงข้อมูลดิบจาก Google Sheet หรือไฟล์ Excel"""
     df = None
     data_source = ""
     try:
@@ -103,7 +141,6 @@ def get_raw_df():
     return df.fillna("").astype(str), data_source
 
 def is_wifi_or_femto_row(row_str):
-    """กรองเอาเฉพาะ TrueWiFi และ Femto เท่านั้น"""
     r = row_str.lower()
     if 'ftth' in r or 'splitter' in r or 'bma_ftth' in r or 'upc_ftth' in r:
         if 'wifi' not in r and 'femto' not in r and 'truewifi' not in r:
@@ -112,28 +149,21 @@ def is_wifi_or_femto_row(row_str):
     return any(kw in r for kw in wifi_keywords)
 
 def is_valid_bcode_row(row_str):
-    """กรองเอาเฉพาะแถวที่มี B-Code ตรงตามที่เลือกไว้"""
     for bcode in ALLOWED_BCODES:
         if re.search(rf'[-_]{bcode}[-_]|\b{bcode}\b', row_str, re.IGNORECASE):
             return True
     return False
 
 def get_processed_data():
-    """ดึงข้อมูล และกรองเฉพาะ Node B-Code ที่อนุญาต และคัดแยกเขตตามสถานที่จริง"""
     df, source = get_raw_df()
     if df is None:
         return None, source, {}
 
     full_row_str = df.apply(lambda row: ' '.join(row), axis=1)
-    
-    # 1. กรองว่าเป็น WiFi / Femto
     wifi_mask = full_row_str.apply(is_wifi_or_femto_row)
-    
-    # 2. กรอง B-Code อนุญาต
     bcode_mask = full_row_str.apply(is_valid_bcode_row)
     
     filtered_df = df[wifi_mask & bcode_mask].copy()
-
     categorized = {area["id"]: [] for area in AREA_CONFIG}
     records = filtered_df.to_dict(orient="records")
 
@@ -141,12 +171,10 @@ def get_processed_data():
         row_text = ' '.join(str(v) for v in record.values())
 
         for area in AREA_CONFIG:
-            # เช็กว่ามี Keywords ของเขตนี้หรือไม่
             patterns = [re.escape(k) for k in area["keywords"]]
             pattern_regex = '|'.join(patterns)
 
             if re.search(pattern_regex, row_text, re.IGNORECASE):
-                # เช็กคำต้องห้าม (Exclude Keywords)
                 excludes = area.get("exclude_keywords", [])
                 if excludes:
                     exclude_regex = '|'.join([re.escape(ex) for ex in excludes])
@@ -174,7 +202,6 @@ def create_wifi_flex_message():
 
         for area in AREA_CONFIG:
             items = categorized.get(area["id"], [])
-            
             count_femto = sum(1 for item in items if 'femto' in ' '.join(item.values()).lower())
             count_wifi = len(items) - count_femto
 
@@ -206,10 +233,7 @@ def create_wifi_flex_message():
             "type": "bubble",
             "size": "mega",
             "header": {
-                "type": "box",
-                "layout": "vertical",
-                "backgroundColor": "#1A1A1A",
-                "paddingAll": "md",
+                "type": "box", "layout": "vertical", "backgroundColor": "#1A1A1A", "paddingAll": "md",
                 "contents": [
                     {
                         "type": "box", "layout": "horizontal",
@@ -222,10 +246,7 @@ def create_wifi_flex_message():
                 ]
             },
             "body": {
-                "type": "box",
-                "layout": "vertical",
-                "backgroundColor": "#242424",
-                "paddingAll": "md",
+                "type": "box", "layout": "vertical", "backgroundColor": "#242424", "paddingAll": "md",
                 "contents": [
                     {"type": "text", "text": "📶 True WiFi", "weight": "bold", "color": "#FFD700", "size": "sm"},
                     {"type": "box", "layout": "vertical", "margin": "xs", "contents": wifi_rows_json},
@@ -257,33 +278,17 @@ def create_wifi_flex_message():
                 ]
             },
             "footer": {
-                "type": "box",
-                "layout": "vertical",
-                "backgroundColor": "#1A1A1A",
-                "paddingAll": "sm",
-                "spacing": "xs",
+                "type": "box", "layout": "vertical", "backgroundColor": "#1A1A1A", "paddingAll": "sm", "spacing": "xs",
                 "contents": [
                     {
                         "type": "button",
-                        "action": {
-                            "type": "uri",
-                            "label": "🔍 ดูรายละเอียดงานค้างทั้งหมด",
-                            "uri": liff_url
-                        },
-                        "style": "primary",
-                        "color": "#00E676",
-                        "height": "sm"
+                        "action": {"type": "uri", "label": "🔍 ดูรายละเอียดงานค้างทั้งหมด", "uri": liff_url},
+                        "style": "primary", "color": "#00E676", "height": "sm"
                     },
                     {
                         "type": "button",
-                        "action": {
-                            "type": "message",
-                            "label": "🔄 อัปเดตข้อมูลสด (wifi)",
-                            "text": "wifi"
-                        },
-                        "style": "secondary",
-                        "color": "#333333",
-                        "height": "sm"
+                        "action": {"type": "message", "label": "🔄 อัปเดตข้อมูลสด (wifi)", "text": "wifi"},
+                        "style": "secondary", "color": "#333333", "height": "sm"
                     }
                 ]
             }
@@ -297,7 +302,7 @@ def create_wifi_flex_message():
     except Exception as e:
         return TextMessage(text=f"❌ เกิดข้อผิดพลาดขณะสร้าง Flex Message: {str(e)}")
 
-# --- Endpoints ---
+# --- API Endpoints ---
 
 @app.get("/")
 def root_check():
@@ -317,6 +322,83 @@ def get_pending_data_api():
         "categorized": categorized
     }
 
+@app.post("/api/ping_test")
+def ping_test_api(req: PingRequest):
+    """ยิง Request ไปที่ pingap.truecorp.co.th/test เพื่อสอบถามสถานะ Ping"""
+    payload = {
+        "emp_id": req.emp_id,
+        "circuit": req.circuit,
+        "ip": req.ip,
+        "submit": "Submit"
+    }
+    
+    try:
+        resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=10)
+        
+        # กรณี Session หลุดหรือหมดอายุ ให้ Auto-Login ใหม่ แล้วยิงซ้ำ
+        if "login" in resp.url.lower() or "login" in resp.text.lower():
+            login_to_pingap()
+            resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=10)
+
+        html_text = resp.text.lower()
+        
+        if "ping ok" in html_text or "reply from" in html_text or "bytes=" in html_text:
+            return {"status": "success", "message": "Ping OK", "raw": "Ping Test OK"}
+        elif "ping fail" in html_text or "request timed out" in html_text or "unreachable" in html_text:
+            return {"status": "fail", "message": "Ping Fail", "raw": "Ping Test Fail"}
+        else:
+            return {"status": "success", "message": "Ping Completed", "raw": resp.text[:300]}
+            
+    except Exception as e:
+        return {"status": "error", "message": f"Connection Error: {str(e)}", "raw": str(e)}
+
+@app.post("/api/get_ap_config")
+def get_ap_config_api(req: ConfigRequest):
+    """ดึง AP Config Template และสถานที่ติดตั้งจริงผ่าน Session"""
+    payload = {"ip": req.ip}
+    
+    try:
+        resp = session.post(f"{PINGAP_BASE_URL}/ap_config", data=payload, timeout=10)
+        
+        if "login" in resp.url.lower() or "login" in resp.text.lower():
+            login_to_pingap()
+            resp = session.post(f"{PINGAP_BASE_URL}/ap_config", data=payload, timeout=10)
+
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        text_content = soup.get_text()
+        
+        # ดึงคำสั่ง capwap
+        capwap_lines = [line.strip() for line in text_content.split('\n') if line.strip().lower().startswith('capwap')]
+        capwap_config = "\n".join(capwap_lines)
+
+        # ดึงข้อมูล Site Name และ Address
+        site_name = ""
+        address = ""
+        for t in soup.find_all('table'):
+            t_text = t.get_text()
+            if "SITE_NAME" in t_text or "ADDRESS" in t_text:
+                for row in t.find_all('tr'):
+                    r_text = row.get_text()
+                    if "SITE_NAME" in r_text:
+                        site_name = r_text.replace("SITE_NAME", "").strip(" :")
+                    if "ADDRESS" in r_text:
+                        address = r_text.replace("ADDRESS", "").strip(" :")
+
+        return {
+            "status": "success",
+            "ip": req.ip,
+            "site_name": site_name,
+            "address": address,
+            "capwap_config": capwap_config
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "capwap_config": "",
+            "address": "ไม่สามารถดึงข้อมูลสถานที่ได้"
+        }
+
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
     html_content = f"""
@@ -333,11 +415,15 @@ def liff_page():
             
             .container {{ width: 100%; max-width: 100%; padding: 8px 8px 24px 8px; }}
             
-            .header {{ position: -webkit-sticky; position: sticky; top: 0; background-color: #121212; padding: 12px 10px; z-index: 100; border-bottom: 1px solid #222; width: 100%; }}
-            .title {{ color: #00E676; font-size: 16px; font-weight: bold; margin-bottom: 8px; text-align: center; }}
-            .search-box {{ width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 14px; outline: none; -webkit-appearance: none; }}
-            .search-box:focus {{ border-color: #00E676; }}
-            .count-info {{ margin-top: 6px; font-size: 12px; color: #00E676; text-align: right; font-weight: bold; }}
+            .header {{ position: -webkit-sticky; position: sticky; top: 0; background-color: #121212; padding: 10px 10px; z-index: 100; border-bottom: 1px solid #222; width: 100%; }}
+            .title {{ color: #00E676; font-size: 15px; font-weight: bold; margin-bottom: 6px; text-align: center; }}
+            
+            .setting-bar {{ display: flex; gap: 6px; margin-bottom: 8px; }}
+            .emp-input {{ flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 12px; outline: none; }}
+            .search-box {{ width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 13px; outline: none; -webkit-appearance: none; }}
+            .search-box:focus, .emp-input:focus {{ border-color: #00E676; }}
+            
+            .count-info {{ margin-top: 4px; font-size: 11px; color: #00E676; text-align: right; font-weight: bold; }}
             
             .area-group {{ width: 100%; margin-bottom: 10px; border-radius: 8px; overflow: hidden; border: 1px solid #2C2C2E; background-color: #18181A; }}
             .area-header {{ width: 100%; padding: 12px 10px; background-color: #222225; color: #FFF; font-weight: bold; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }}
@@ -373,6 +459,27 @@ def liff_page():
             .item-val.status {{ color: #00E676; font-weight: bold; }}
             .item-val.severity {{ color: #FF5252; font-weight: bold; }}
 
+            .ip-action-row {{ display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 2px; }}
+            .action-btn-group {{ display: flex; gap: 4px; }}
+            
+            .btn-action {{ padding: 3px 7px; font-size: 10px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; text-transform: uppercase; display: flex; align-items: center; gap: 3px; }}
+            .btn-ping {{ background-color: #00E676; color: #000; }}
+            .btn-ping:active {{ background-color: #00B0FF; }}
+            .btn-cfg {{ background-color: #FF9100; color: #000; }}
+            .btn-cfg:active {{ background-color: #FFD600; }}
+            
+            .ping-result-badge {{ font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; margin-top: 4px; display: inline-block; }}
+            .ping-ok {{ background-color: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }}
+            .ping-fail {{ background-color: rgba(255, 82, 82, 0.2); color: #FF5252; border: 1px solid #FF5252; }}
+
+            .config-box {{ display: none; background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-family: monospace; font-size: 11px; }}
+            .config-box.open {{ display: block; }}
+            .config-title {{ color: #FF9100; font-weight: bold; font-size: 11px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }}
+            .config-location {{ color: #8B949E; font-size: 10.5px; margin-bottom: 6px; line-height: 1.3; background-color: #161B22; padding: 6px; border-radius: 4px; border-left: 2px solid #FF9100; }}
+            .config-text {{ background-color: #161B22; color: #58A6FF; padding: 8px; border-radius: 4px; border: 1px solid #21262D; white-space: pre-wrap; word-break: break-all; margin-bottom: 6px; line-height: 1.4; }}
+            .btn-copy-cfg {{ width: 100%; padding: 6px; background-color: #238636; color: #FFF; border: none; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; text-align: center; }}
+            .btn-copy-cfg:active {{ background-color: #2EA043; }}
+
             .btn-copy {{ display: block; width: 100%; padding: 10px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; -webkit-appearance: none; }}
             .btn-copy:active {{ background-color: #00E676; color: #000; }}
             .loading {{ text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }}
@@ -381,6 +488,9 @@ def liff_page():
     <body>
         <div class="header">
             <div class="title">📋 รายละเอียดงานค้าง True WiFi ประจำเขต</div>
+            <div class="setting-bar">
+                <input type="text" id="empIdInput" class="emp-input" placeholder="🆔 Employee ID (8 หลัก)" onchange="saveEmpId()">
+            </div>
             <input type="text" id="searchInput" class="search-box" placeholder="🔍 ค้นหา TICKETID, IP, SUBJECT, STATUS..." oninput="filterData()">
             <div class="count-info" id="countInfo">กำลังโหลดข้อมูล...</div>
         </div>
@@ -395,6 +505,7 @@ def liff_page():
             let totalCountAll = 0;
 
             async function initLIFF() {{
+                loadSavedEmpId();
                 try {{
                     const liffPromise = liff.init({{ liffId: "{LIFF_ID}" }});
                     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("LIFF Init Timeout")), 3000));
@@ -403,6 +514,22 @@ def liff_page():
                     console.warn("LIFF Init Fallback:", err);
                 }} finally {{
                     fetchData();
+                }}
+            }}
+
+            function loadSavedEmpId() {{
+                const saved = localStorage.getItem('TRUE_EMP_ID');
+                if (saved) {{
+                    document.getElementById('empIdInput').value = saved;
+                }} else {{
+                    document.getElementById('empIdInput').value = 'VDWW2097';
+                }}
+            }}
+
+            function saveEmpId() {{
+                const val = document.getElementById('empIdInput').value.trim();
+                if (val) {{
+                    localStorage.setItem('TRUE_EMP_ID', val);
                 }}
             }}
 
@@ -436,7 +563,7 @@ def liff_page():
                 return match ? match[0] : '-';
             }}
 
-            function buildCardHtml(item) {{
+            function buildCardHtml(item, index) {{
                 let jsonStr = JSON.stringify(item).toLowerCase();
                 let isFemto = jsonStr.includes('femto');
                 
@@ -452,15 +579,22 @@ def liff_page():
                 let severity = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '-';
                 let creationDate = getVal(item, ['CREATIONDATE', 'CREATION_DATE', 'CREATED', 'Tech_timestamp', 'TIMESTAMP']) || '-';
 
-                let copyText = `TICKETID: ${{ticket}}\\nIP: ${{ip}}\\nSUBJECT: ${{subject}}\\nSTATUS: ${{status}}\\nSEVERITY: ${{severity}}\\nCREATIONDATE: ${{creationDate}}`;
+                let cardId = 'card-' + Math.random().toString(36).substr(2, 9);
+                let copyText = 'TICKETID: ' + ticket + '\\nIP: ' + ip + '\\nSUBJECT: ' + subject + '\\nSTATUS: ' + status + '\\nSEVERITY: ' + severity + '\\nCREATIONDATE: ' + creationDate;
                 let safeCopyText = encodeURIComponent(copyText);
 
                 let safeTicket = encodeURIComponent(ticket);
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
+                let ipActionHtml = ip !== '-' ? `
+                <div class="action-btn-group">
+                    <button class="btn-action btn-ping" onclick="runPingTest('${{ip}}', '${{cardId}}')">⚡ Ping</button>
+                    <button class="btn-action btn-cfg" onclick="toggleApConfig('${{ip}}', '${{cardId}}')">⚙️ Config</button>
+                </div>` : '';
+
                 return `
-                <div class="card">
+                <div class="card" id="${{cardId}}">
                     <div class="card-header">
                         <div class="ticket-badge clickable" onclick="copySingleValue('${{safeTicket}}', 'Ticket ID', this)" title="แตะเพื่อคัดลอก Ticket ID">
                             🎫 ${{ticket}}
@@ -474,9 +608,13 @@ def liff_page():
                     </div>
 
                     <div class="grid-container">
-                        <div class="grid-item clickable" onclick="copySingleValue('${{safeIp}}', 'IP Address', this)" title="แตะเพื่อคัดลอก IP">
-                            <span class="item-label">IP Address</span>
-                            <span class="item-val ip">${{ip}}</span>
+                        <div class="grid-item">
+                            <span class="item-label">IP ADDRESS</span>
+                            <div class="ip-action-row">
+                                <span class="item-val ip clickable" onclick="copySingleValue('${{safeIp}}', 'IP Address', this)">${{ip}}</span>
+                                ${{ipActionHtml}}
+                            </div>
+                            <div id="ping-status-${{cardId}}"></div>
                         </div>
                         <div class="grid-item">
                             <span class="item-label">STATUS</span>
@@ -492,139 +630,185 @@ def liff_page():
                         </div>
                     </div>
 
+                    <div class="config-box" id="config-box-${{cardId}}">
+                        <div class="config-title">
+                            <span>⚙️ CAPWAP CONFIG TEMPLATE</span>
+                            <span style="color:#888; font-size:9px;">IP: ${{ip}}</span>
+                        </div>
+                        <div class="config-location" id="config-loc-${{cardId}}">
+                            ⏳ กำลังค้นหาข้อมูลสถานที่ซ่อมหน้างานจริง...
+                        </div>
+                        <div class="config-text" id="config-text-${{cardId}}">กำลังสร้างชุดคำสั่ง Capwap...</div>
+                        <button class="btn-copy-cfg" id="btn-copy-cfg-${{cardId}}" onclick="copyConfigText('${{cardId}}')">📋 คัดลอก Config ทั้งหมด</button>
+                    </div>
+
                     <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดทั้งหมด</button>
                 </div>
                 `;
             }}
 
-            function renderAccordion(currentData, isSearching = false) {{
+            function renderAccordion(data) {{
                 const container = document.getElementById('accordionContainer');
-                
-                let displayTotal = 0;
-                let html = '';
+                container.className = "container";
+                container.innerHTML = '';
+
+                let totalVisible = 0;
 
                 areaConfig.forEach(area => {{
-                    const items = currentData[area.id] || [];
-                    displayTotal += items.length;
-                    const isOpen = isSearching && items.length > 0;
+                    let items = data[area.id] || [];
+                    totalVisible += items.length;
 
-                    html += `
-                    <div class="area-group ${{isOpen ? 'open' : ''}}" id="group-${{area.id}}">
-                        <div class="area-header" onclick="toggleGroup('group-${{area.id}}')">
+                    let areaDiv = document.createElement('div');
+                    areaDiv.className = 'area-group';
+                    areaDiv.id = 'area-group-' + area.id;
+
+                    let isZero = items.length === 0;
+
+                    let cardsHtml = items.length > 0 
+                        ? items.map((item, idx) => buildCardHtml(item, idx)).join('')
+                        : '<div style="text-align:center; padding:12px; color:#666; font-size:12px;">ไม่มีรายการงานค้างในเขตนี้</div>';
+
+                    areaDiv.innerHTML = `
+                        <div class="area-header" onclick="toggleArea('${{area.id}}')">
                             <span>${{area.name}}</span>
                             <div>
-                                <span class="area-badge ${{items.length === 0 ? 'zero' : ''}}">${{items.length}} งาน</span>
+                                <span class="area-badge ${{isZero ? 'zero' : ''}}">${{items.length}}</span>
                                 <span class="arrow-icon">▼</span>
                             </div>
                         </div>
-                        <div class="area-content">
-                            ${{items.length === 0 ? '<div style="color:#666; text-align:center; padding:10px;">ไม่มีงานค้าง</div>' : items.map(buildCardHtml).join('')}}
+                        <div class="area-content" id="area-content-${{area.id}}">
+                            ${{cardsHtml}}
                         </div>
-                    </div>
                     `;
+
+                    container.appendChild(areaDiv);
                 }});
 
-                document.getElementById('countInfo').innerText = `แสดง ${{displayTotal}} จากทั้งหมด ${{totalCountAll}} งาน`;
-                container.innerHTML = html;
+                document.getElementById('countInfo').innerText = 'รวมทั้งหมด ' + totalVisible + ' รายการ';
             }}
 
-            function toggleGroup(groupId) {{
-                const el = document.getElementById(groupId);
-                if (el) {{
-                    el.classList.toggle('open');
+            function toggleArea(areaId) {{
+                const group = document.getElementById('area-group-' + areaId);
+                group.classList.toggle('open');
+            }}
+
+            async function runPingTest(ip, cardId) {{
+                const statusBox = document.getElementById('ping-status-' + cardId);
+                const empId = document.getElementById('empIdInput').value.trim() || 'VDWW2097';
+                
+                statusBox.innerHTML = '<span class="ping-result-badge" style="color:#FF9100;">⏳ Ping...</span>';
+
+                try {{
+                    const res = await fetch('/api/ping_test', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ ip: ip, emp_id: empId }})
+                    }});
+                    const data = await res.json();
+
+                    if (data.status === 'success') {{
+                        statusBox.innerHTML = '<span class="ping-result-badge ping-ok">🟢 ' + data.message + '</span>';
+                    }} else {{
+                        statusBox.innerHTML = '<span class="ping-result-badge ping-fail">🔴 ' + data.message + '</span>';
+                    }}
+                }} catch (e) {{
+                    statusBox.innerHTML = '<span class="ping-result-badge ping-fail">⚠️ Ping Error</span>';
                 }}
+            }}
+
+            async function toggleApConfig(ip, cardId) {{
+                const configBox = document.getElementById('config-box-' + cardId);
+                const locBox = document.getElementById('config-loc-' + cardId);
+                const textBox = document.getElementById('config-text-' + cardId);
+
+                if (configBox.classList.contains('open')) {{
+                    configBox.classList.remove('open');
+                    return;
+                }}
+
+                configBox.classList.add('open');
+                locBox.innerHTML = '⏳ กำลังดึงข้อมูลจาก pingap...';
+                textBox.innerText = 'กำลังดึง Config...';
+
+                try {{
+                    const res = await fetch('/api/get_ap_config', {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ ip: ip }})
+                    }});
+                    const data = await res.json();
+
+                    if (data.status === 'success') {{
+                        locBox.innerHTML = '<strong>📍 สถานที่:</strong> ' + (data.site_name || '-') + ' <br><strong>🏠 ที่อยู่:</strong> ' + (data.address || '-');
+                        textBox.innerText = data.capwap_config || 'ไม่พบ Config CAPWAP';
+                    }} else {{
+                        locBox.innerHTML = '❌ ไม่สามารถโหลดข้อมูลสถานที่ได้';
+                        textBox.innerText = 'ไม่สามารถค้นหา Config ได้';
+                    }}
+                }} catch (e) {{
+                    locBox.innerHTML = '⚠️ เกิดข้อผิดพลาดทางเครือข่าย';
+                    textBox.innerText = 'Error loading config';
+                }}
+            }}
+
+            function copyConfigText(cardId) {{
+                const text = document.getElementById('config-text-' + cardId).innerText;
+                const btn = document.getElementById('btn-copy-cfg-' + cardId);
+                navigator.clipboard.writeText(text).then(() => {{
+                    let oldText = btn.innerText;
+                    btn.innerText = '✅ คัดลอก Config เรียบร้อย!';
+                    setTimeout(() => btn.innerText = oldText, 2000);
+                }});
+            }}
+
+            function copySingleValue(encodedValue, label, element) {{
+                const value = decodeURIComponent(encodedValue);
+                navigator.clipboard.writeText(value).then(() => {{
+                    let originalText = element.innerText;
+                    element.innerText = '✅ คัดลอกแล้ว';
+                    setTimeout(() => element.innerText = originalText, 1500);
+                }});
+            }}
+
+            function copyToClipboard(encodedText, btnElement) {{
+                const text = decodeURIComponent(encodedText);
+                navigator.clipboard.writeText(text).then(() => {{
+                    let oldText = btnElement.innerText;
+                    btnElement.innerText = '✅ คัดลอกรายละเอียดแล้ว!';
+                    btnElement.style.backgroundColor = '#00E676';
+                    btnElement.style.color = '#000';
+                    setTimeout(() => {{
+                        btnElement.innerText = oldText;
+                        btnElement.style.backgroundColor = '#2A2A2E';
+                        btnElement.style.color = '#DDD';
+                    }}, 2000);
+                }});
             }}
 
             function filterData() {{
                 const query = document.getElementById('searchInput').value.toLowerCase().trim();
                 if (!query) {{
-                    renderAccordion(categorizedData, false);
+                    renderAccordion(categorizedData);
                     return;
                 }}
 
                 let filteredCategorized = {{}};
-                Object.keys(categorizedData).forEach(key => {{
-                    filteredCategorized[key] = categorizedData[key].filter(item => {{
-                        return Object.values(item).some(val => String(val).toLowerCase().includes(query));
+                areaConfig.forEach(area => {{
+                    let items = categorizedData[area.id] || [];
+                    filteredCategorized[area.id] = items.filter(item => {{
+                        let str = JSON.stringify(item).toLowerCase();
+                        return str.includes(query);
                     }});
                 }});
 
-                renderAccordion(filteredCategorized, true);
-            }}
+                renderAccordion(filteredCategorized);
 
-            function copySingleValue(encodedVal, label, el) {{
-                const val = decodeURIComponent(encodedVal);
-                if (!val || val === '-') return;
-                
-                if (navigator.clipboard && window.isSecureContext) {{
-                    navigator.clipboard.writeText(val).then(() => showToast(`คัดลอก ${{label}} แล้ว`)).catch(() => fallbackCopy(val, null, label));
-                }} else {{
-                    fallbackCopy(val, null, label);
-                }}
-            }}
-
-            function copyToClipboard(encodedText, btn) {{
-                const text = decodeURIComponent(encodedText);
-                
-                if (navigator.clipboard && window.isSecureContext) {{
-                    navigator.clipboard.writeText(text).then(() => updateBtnState(btn)).catch(() => fallbackCopy(text, btn));
-                }} else {{
-                    fallbackCopy(text, btn);
-                }}
-            }}
-
-            function fallbackCopy(text, btn, label) {{
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                textArea.style.position = "fixed";
-                textArea.style.opacity = "0";
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                try {{
-                    document.execCommand('copy');
-                    if (btn) {{
-                        updateBtnState(btn);
-                    }} else if (label) {{
-                        showToast(`คัดลอก ${{label}} แล้ว`);
+                areaConfig.forEach(area => {{
+                    if ((filteredCategorized[area.id] || []).length > 0) {{
+                        const group = document.getElementById('area-group-' + area.id);
+                        if (group) group.classList.add('open');
                     }}
-                }} catch (err) {{
-                    alert('ไม่สามารถคัดลอกได้');
-                }}
-                document.body.removeChild(textArea);
-            }}
-
-            function updateBtnState(btn) {{
-                const origText = btn.innerText;
-                btn.innerText = '✅ คัดลอกเรียบร้อย!';
-                btn.style.backgroundColor = '#00E676';
-                btn.style.color = '#000';
-                setTimeout(() => {{
-                    btn.innerText = origText;
-                    btn.style.backgroundColor = '#2A2A2E';
-                    btn.style.color = '#DDD';
-                }}, 1500);
-            }}
-
-            function showToast(msg) {{
-                let toast = document.createElement('div');
-                toast.style.position = 'fixed';
-                toast.style.bottom = '20px';
-                toast.style.left = '50%';
-                toast.style.transform = 'translateX(-50%)';
-                toast.style.backgroundColor = '#00E676';
-                toast.style.color = '#000';
-                toast.style.padding = '8px 16px';
-                toast.style.borderRadius = '20px';
-                toast.style.fontWeight = 'bold';
-                toast.style.fontSize = '12px';
-                toast.style.zIndex = '9999';
-                toast.style.boxShadow = '0 2px 10px rgba(0,0,0,0.5)';
-                toast.innerText = msg;
-                document.body.appendChild(toast);
-                setTimeout(() => {{
-                    toast.remove();
-                }}, 1500);
+                }});
             }}
 
             window.onload = initLIFF;
@@ -634,63 +818,6 @@ def liff_page():
     """
     return HTMLResponse(content=html_content)
 
-@app.post("/webhook")
-async def callback(request: Request):
-    signature = request.headers.get("X-Line-Signature", "")
-    body = await request.body()
-    try:
-        handler.handle(body.decode("utf-8"), signature)
-    except InvalidSignatureError:
-        return Response(content="Invalid signature", status_code=status.HTTP_400_BAD_REQUEST)
-    except Exception as e:
-        print(f"Webhook Error: {e}")
-        return Response(content="OK", status_code=200)
-    return "OK"
-
-@handler.add(MessageEvent)
-def handle_message(event):
-    if isinstance(event.message, TextMessageContent):
-        user_msg = event.message.text.strip().lower()
-        if user_msg == "wifi":
-            flex_msg = create_wifi_flex_message()
-            try:
-                with ApiClient(configuration) as api_client:
-                    line_bot_api = MessagingApi(api_client)
-                    line_bot_api.reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[flex_msg]
-                        )
-                    )
-            except Exception as e:
-                print(f"Error sending LINE message: {e}")
-
-    elif isinstance(event.message, FileMessageContent) or getattr(event.message, 'type', None) == "file":
-        file_name = getattr(event.message, 'file_name', 'data.xlsx')
-        if file_name.lower().endswith(('.xlsx', '.xls')):
-            message_id = event.message.id
-            try:
-                with ApiClient(configuration) as api_client:
-                    line_bot_blob_api = MessagingApiBlob(api_client)
-                    content = line_bot_blob_api.get_message_content(message_id=message_id)
-
-                    with open(MASTER_EXCEL_FILE, 'wb') as f:
-                        f.write(content)
-
-                reply_msg = f"✅ อัปเดตไฟล์สำรองเรียบร้อย!\nชื่อไฟล์: {file_name}"
-            except Exception as e:
-                reply_msg = f"❌ ไม่สามารถบันทึกไฟล์ได้: {str(e)}"
-        else:
-            reply_msg = "⚠️ กรุณาส่งเฉพาะไฟล์ประเภท Excel (.xlsx หรือ .xls) เท่านั้นครับ"
-
-        try:
-            with ApiClient(configuration) as api_client:
-                line_bot_api = MessagingApi(api_client)
-                line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=reply_msg)]
-                    )
-                )
-        except Exception as e:
-            print(f"Error sending LINE message: {e}")
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
