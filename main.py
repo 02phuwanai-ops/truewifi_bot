@@ -1,24 +1,24 @@
 import os
 import re
+import asyncio
 import pandas as pd
 from bs4 import BeautifulSoup
-from curl_cffi import requests
 from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
-    Configuration, ApiClient, MessagingApi, MessagingApiBlob,
+    Configuration, ApiClient, MessagingApi,
     ReplyMessageRequest, TextMessage, FlexMessage, FlexContainer
 )
-from linebot.v3.webhooks import MessageEvent, TextMessageContent, FileMessageContent
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from playwright.async_api import async_playwright
 
 app = FastAPI()
 
 # =========================================================================
-# 1. Health Check Endpoint สำหรับป้องกัน Render Shutdown / Check Status
-# รองรับทั้ง GET และ HEAD Request
+# 1. Health Check Endpoint
 # =========================================================================
 @app.get("/")
 @app.head("/")
@@ -82,41 +82,20 @@ AREA_CONFIG = [
     }
 ]
 
-# --- Global Session Management via curl_cffi ---
-# ใช้ impersonate="chrome120" เพื่อข้าม Cloudflare TLS Fingerprinting Check
-session = requests.Session(impersonate="chrome120")
-session.headers.update({
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,th;q=0.8",
-    "Referer": f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-})
+# --- Playwright Browser Automation Helper ---
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
-def login_to_pingap():
-    """ทำการ Login เข้าสู่ระบบ pingap.truecorp.co.th ด้วย curl_cffi เพื่อเก็บ Session Cookie"""
-    login_url = f"{PINGAP_BASE_URL}/login"
-    login_data = {
-        "username": PINGAP_USER,
-        "password": PINGAP_PASS,
-        "system": "CLLs",
-        "submit": "Login"
-    }
-    try:
-        resp = session.post(login_url, data=login_data, timeout=12)
+async def login_if_needed(page):
+    """ตรวจสอบว่าหน้าปัจจุบันเป็นหน้า Login หรือไม่ หากใช่จะทำการ Login อัตโนมัติ"""
+    if "login" in page.url.lower() or await page.locator("input[name='username']").count() > 0:
+        await page.fill("input[name='username']", PINGAP_USER)
+        await page.fill("input[name='password']", PINGAP_PASS)
+        if await page.locator("select[name='system']").count() > 0:
+            await page.select_option("select[name='system']", "CLLs")
         
-        # ตรวจเช็กการบล็อกของ Cloudflare ในขั้นตอน Login
-        if "cf-mitigated" in resp.headers or "Just a moment..." in resp.text:
-            print("❌ Login blocked by Cloudflare Challenge")
-            return False
-
-        if resp.status_code == 200:
-            print("✅ Login to pingap successfully via curl_cffi")
-            return True
-        else:
-            print(f"⚠️ Login status code: {resp.status_code}")
-            return False
-    except Exception as e:
-        print(f"❌ Login error: {e}")
-        return False
+        await asyncio.sleep(1) # Rate limiting
+        await page.click("input[type='submit']")
+        await page.wait_for_load_state("networkidle")
 
 # --- Pydantic Request Models ---
 class PingRequest(BaseModel):
@@ -140,14 +119,10 @@ def get_raw_df():
     df = None
     data_source = ""
     try:
-        # ใช้ curl_cffi โหลด Google Sheet เพื่อป้องกันการถูกปฏิเสธ Request
-        res = session.get(GOOGLE_SHEET_CSV_URL, timeout=10)
-        if res.status_code == 200:
-            from io import StringIO
-            df = pd.read_csv(StringIO(res.text))
-            data_source = "Google Sheet"
+        df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
+        data_source = "Google Sheet"
     except Exception as e:
-        print(f"Error fetching Google Sheet via curl_cffi: {e}")
+        print(f"Error fetching Google Sheet: {e}")
 
     if df is None or df.empty:
         if os.path.exists(MASTER_EXCEL_FILE):
@@ -378,114 +353,139 @@ def get_pending_data_api():
     }
 
 @app.post("/api/ping_test")
-def ping_test_api(req: PingRequest):
-    """ยิง Request ไปที่ pingap.truecorp.co.th/test ผ่าน curl_cffi"""
-    payload = {
-        "emp_id": req.emp_id,
-        "circuit": req.circuit,
-        "ip": req.ip,
-        "submit": "Submit"
-    }
-    
-    try:
-        resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=12)
-        
-        # ตรวจสอบว่าถูก Cloudflare หรือ Login Redirection กั้นอยู่หรือไม่
-        if "login" in resp.url.lower() or "login" in resp.text.lower() or "just a moment..." in resp.text.lower():
-            if login_to_pingap():
-                resp = session.post(f"{PINGAP_BASE_URL}/test", data=payload, timeout=12)
+async def ping_test_api(req: PingRequest):
+    """ยิง Ping Test ผ่าน Playwright Browser"""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent=USER_AGENT)
+        page = await context.new_page()
 
-        html_text = resp.text.lower()
-        
-        if "ping ok" in html_text or "reply from" in html_text or "bytes=" in html_text:
-            return {"status": "success", "message": "Ping OK", "raw": "Ping Test OK"}
-        elif "ping fail" in html_text or "request timed out" in html_text or "unreachable" in html_text:
-            return {"status": "fail", "message": "Ping Fail", "raw": "Ping Test Fail"}
-        else:
-            return {"status": "success", "message": "Ping Completed", "raw": resp.text[:300]}
+        try:
+            target_url = f"{PINGAP_BASE_URL}/test"
+            await page.goto(target_url, wait_until="networkidle")
             
-    except Exception as e:
-        return {"status": "error", "message": f"Connection Error: {str(e)}", "raw": str(e)}
+            # ตรวจสอบว่าต้อง Login หรือไม่
+            await login_if_needed(page)
+
+            # กรอก Form
+            if await page.locator("input[name='emp_id']").count() > 0:
+                await page.fill("input[name='emp_id']", req.emp_id)
+            if await page.locator("input[name='ip']").count() > 0:
+                await page.fill("input[name='ip']", req.ip)
+
+            await asyncio.sleep(2) # Rate limiting
+
+            # กด Submit
+            if await page.locator("input[type='submit']").count() > 0:
+                await page.click("input[type='submit']")
+                await page.wait_for_load_state("networkidle")
+
+            page_content = (await page.content()).lower()
+
+            await browser.close()
+
+            if any(k in page_content for k in ["ping ok", "reply from", "bytes="]):
+                return {"status": "success", "message": "Ping OK", "raw": "Ping Test OK"}
+            elif any(k in page_content for k in ["ping fail", "request timed out", "unreachable"]):
+                return {"status": "fail", "message": "Ping Fail", "raw": "Ping Test Fail"}
+            else:
+                return {"status": "success", "message": "Ping Completed", "raw": page_content[:300]}
+
+        except Exception as e:
+            await browser.close()
+            return {"status": "error", "message": f"Connection Error: {str(e)}", "raw": str(e)}
 
 @app.post("/api/get_ap_config")
-def get_ap_config_api(req: ConfigRequest):
-    """ดึง AP Config Template ผ่าน curl_cffi รองรับ Cloudflare และระบบ Auto-Login"""
-    target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-    
-    payload = {
-        "ip": req.ip,
-        "ip_ap": req.ip,
-        "model": "Cisco 18XX,28XX,911X",
-        "submit": "Command",
-        "btnSubmit": "Command"
-    }
-    
-    try:
-        resp = session.post(target_url, data=payload, timeout=15)
-        
-        # เช็กกรณีติด Auto-Login / Session หมดอายุ
-        if "login" in resp.url.lower() or "login" in resp.text.lower():
-            if login_to_pingap():
-                resp = session.post(target_url, data=payload, timeout=15)
+async def get_ap_config_api(req: ConfigRequest):
+    """ดึง AP Config Template ผ่าน Playwright Browser"""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent=USER_AGENT)
+        page = await context.new_page()
 
-        # ตรวจสอบการบล็อกของ Cloudflare WAF / Challenge Page
-        if "Attention Required!" in resp.text or "Cloudflare" in resp.text or "Just a moment..." in resp.text:
+        target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+
+        try:
+            await page.goto(target_url, wait_until="networkidle")
+            
+            # ตรวจสอบว่าต้อง Login หรือไม่
+            await login_if_needed(page)
+
+            # หากโดน Redirect หลังจาก Login ให้เปิดหน้า Target URL อีกครั้ง
+            if "wifi/index.asp" not in page.url:
+                await page.goto(target_url, wait_until="networkidle")
+
+            # กรอก IP Address ลงในช่อง ค้นหา/ยิง Request
+            if await page.locator("input[name='ip']").count() > 0:
+                await page.fill("input[name='ip']", req.ip)
+            elif await page.locator("input[name='ip_ap']").count() > 0:
+                await page.fill("input[name='ip_ap']", req.ip)
+
+            await asyncio.sleep(2) # Rate limiting
+
+            # กดปุ่ม Command / Submit
+            if await page.locator("input[name='btnSubmit']").count() > 0:
+                await page.click("input[name='btnSubmit']")
+            elif await page.locator("input[type='submit']").count() > 0:
+                await page.click("input[type='submit']")
+
+            await page.wait_for_load_state("networkidle")
+            html_content = await page.content()
+
+            await browser.close()
+
+            # --- Parse ข้อมูล HTML ด้วย BeautifulSoup ---
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # 1. แกะ Config CAPWAP
+            capwap_lines = []
+            for line in soup.get_text().splitlines():
+                line_str = line.strip()
+                if line_str and any(k in line_str.lower() for k in ['capwap', 'ap name', 'controller', 'ip name', 'cisco']):
+                    capwap_lines.append(line_str)
+
+            capwap_config = "\n".join(capwap_lines) if capwap_lines else ""
+
+            # 2. แกะ Site Name และ Address
+            site_name = ""
+            address = ""
+
+            for row in soup.find_all('tr'):
+                row_text = row.get_text(strip=True)
+                if "SITE_NAME" in row_text.upper():
+                    cols = row.find_all(['td', 'th'])
+                    if len(cols) >= 2:
+                        site_name = cols[1].get_text(strip=True)
+                    else:
+                        site_name = row_text.replace("SITE_NAME", "").strip(" :")
+                        
+                if "ADDRESS" in row_text.upper():
+                    cols = row.find_all(['td', 'th'])
+                    if len(cols) >= 2:
+                        address = cols[1].get_text(strip=True)
+                    else:
+                        address = row_text.replace("ADDRESS", "").strip(" :")
+
+            if not capwap_config and not site_name:
+                if len(html_content) > 100:
+                    capwap_config = "⚠️ ดึงข้อมูลสำเร็จ แต่ไม่พบบรรทัด 'capwap'\nตรวจสอบข้อมูลดิบชั่วคราว:\n" + soup.get_text()[:500]
+
             return {
-                "status": "error",
-                "capwap_config": "❌ Request ถูก Cloudflare บล็อก (Cloudflare WAF Blocked)",
-                "address": "-"
+                "status": "success",
+                "ip": req.ip,
+                "site_name": site_name if site_name else "-",
+                "address": address if address else "-",
+                "capwap_config": capwap_config if capwap_config else "ไม่พบ Config CAPWAP"
             }
 
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        # --- 1. แกะ Config CAPWAP ---
-        capwap_lines = []
-        for line in soup.get_text().splitlines():
-            line_str = line.strip()
-            if line_str and any(k in line_str.lower() for k in ['capwap', 'ap name', 'controller', 'ip name', 'cisco']):
-                capwap_lines.append(line_str)
-
-        capwap_config = "\n".join(capwap_lines) if capwap_lines else ""
-
-        # --- 2. แกะ Site Name และ Address ---
-        site_name = ""
-        address = ""
-
-        for row in soup.find_all('tr'):
-            row_text = row.get_text(strip=True)
-            if "SITE_NAME" in row_text.upper():
-                cols = row.find_all(['td', 'th'])
-                if len(cols) >= 2:
-                    site_name = cols[1].get_text(strip=True)
-                else:
-                    site_name = row_text.replace("SITE_NAME", "").strip(" :")
-                    
-            if "ADDRESS" in row_text.upper():
-                cols = row.find_all(['td', 'th'])
-                if len(cols) >= 2:
-                    address = cols[1].get_text(strip=True)
-                else:
-                    address = row_text.replace("ADDRESS", "").strip(" :")
-
-        if not capwap_config and not site_name:
-            if len(resp.text) > 100:
-                capwap_config = "⚠️ ดึงข้อมูลสำเร็จ แต่ไม่พบบรรทัด 'capwap'\nตรวจสอบข้อมูลดิบชั่วคราว:\n" + soup.get_text()[:500]
-
-        return {
-            "status": "success",
-            "ip": req.ip,
-            "site_name": site_name if site_name else "-",
-            "address": address if address else "-",
-            "capwap_config": capwap_config if capwap_config else "ไม่พบ Config CAPWAP"
-        }
-
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "capwap_config": "เกิดข้อผิดพลาดในการดึง Config",
-            "address": "ไม่สามารถดึงข้อมูลสถานที่ได้"
-        }
+        except Exception as e:
+            await browser.close()
+            return {
+                "status": "error",
+                "message": str(e),
+                "capwap_config": "เกิดข้อผิดพลาดในการดึง Config",
+                "address": "ไม่สามารถดึงข้อมูลสถานที่ได้"
+            }
 
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():

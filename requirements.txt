@@ -2,6 +2,6 @@ fastapi
 uvicorn
 pandas
 openpyxl
-line-bot-sdk
 beautifulsoup4
-curl-cffi
+line-bot-sdk
+playwright
