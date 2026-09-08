@@ -16,6 +16,15 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, FileMessageCon
 
 app = FastAPI()
 
+# =========================================================================
+# 1. Health Check Endpoint สำหรับป้องกัน Render Shutdown / Check Status
+# รองรับทั้ง GET และ HEAD Request
+# =========================================================================
+@app.get("/")
+@app.head("/")
+def health_check():
+    return Response(content="True WiFi Bot is running normally", status_code=status.HTTP_200_OK)
+
 # --- Configs & Credentials ---
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
@@ -353,10 +362,6 @@ def handle_text_message(event: MessageEvent):
         )
 
 # --- API Endpoints ---
-
-@app.get("/")
-def root_check():
-    return {"status": "True WiFi Bot is running"}
 
 @app.get("/api/pending_data")
 def get_pending_data_api():
