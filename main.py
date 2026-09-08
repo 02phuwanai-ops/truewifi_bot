@@ -3,7 +3,7 @@ import re
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from linebot.v3 import WebhookHandler
@@ -264,7 +264,7 @@ def create_wifi_flex_message():
                         "type": "box", "layout": "horizontal", "margin": "sm",
                         "contents": [
                             {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
+                            {"type": "text", "text": f"{count_femto if 'count_femto' in locals() else femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
                         ]
                     },
                     {"type": "separator", "margin": "md", "color": "#444444"},
@@ -301,6 +301,44 @@ def create_wifi_flex_message():
 
     except Exception as e:
         return TextMessage(text=f"❌ เกิดข้อผิดพลาดขณะสร้าง Flex Message: {str(e)}")
+
+# --- LINE Webhook Handler ---
+
+@app.post("/webhook")
+async def webhook_handler(request: Request):
+    """รองรับ Event Webhook POST จาก LINE Messaging API"""
+    signature = request.headers.get("X-Line-Signature")
+    if not signature:
+        raise HTTPException(status_code=400, detail="Missing X-Line-Signature header")
+
+    body = await request.body()
+    body_str = body.decode("utf-8")
+
+    try:
+        handler.handle(body_str, signature)
+    except InvalidSignatureError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    return "OK"
+
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_text_message(event: MessageEvent):
+    user_text = event.message.text.strip().lower()
+    
+    # เมื่อพิมพ์ "wifi" หรือ "งานค้าง" ให้ตอบกลับด้วย Flex Message สรุปรายงาน
+    if user_text in ["wifi", "งานค้าง", "report", "สรุป"]:
+        reply_msg = create_wifi_flex_message()
+    else:
+        reply_msg = TextMessage(text="พิมพ์ 'wifi' เพื่อดูรายงานสรุปงานค้างซ่อมประจำเขตครับ")
+
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[reply_msg]
+            )
+        )
 
 # --- API Endpoints ---
 
