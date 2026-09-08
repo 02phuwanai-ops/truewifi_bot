@@ -59,7 +59,7 @@ AREA_CONFIG = [
             'พระราม 9', 'พระราม๙', 'พระราม9', 
             'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม'
         ],
-        "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน'] 
+        "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พพหลโยธิน'] 
     },
     {
         "id": "area5", 
@@ -75,8 +75,12 @@ AREA_CONFIG = [
 
 # --- Global Session Management for pingap ---
 session = requests.Session()
+# ปลอมแปลง User-Agent และ Headers ให้เหมือน Browser จริงเพื่อลดโอกาสติด Cloudflare Block
 session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,th;q=0.8",
+    "Referer": "https://pingap.truecorp.co.th/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
 })
 
 def login_to_pingap():
@@ -392,40 +396,35 @@ def ping_test_api(req: PingRequest):
 
 @app.post("/api/get_ap_config")
 def get_ap_config_api(req: ConfigRequest):
-    """ดึง AP Config Template และสถานที่ติดตั้งจริงผ่าน Session"""
-    # ปรับ Payload ให้ครอบคลุมทุกแบบที่ฟอร์ม PingAP อาจจะใช้
+    """ดึง AP Config Template และสถานที่ติดตั้งจริงผ่าน Session (ปรับปรุงรองรับ Cloudflare / หน้า ASP ใหม่)"""
+    target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+    
     payload = {
         "ip": req.ip,
-        "ip_address": req.ip,
-        "submit": "Submit",
-        "search": "Search"
+        "ip_ap": req.ip,
+        "model": "Cisco 18XX,28XX,911X",
+        "submit": "Command",
+        "btnSubmit": "Command"
     }
     
     try:
-        # ยิง Request
-        resp = session.post(f"{PINGAP_BASE_URL}/ap_config", data=payload, timeout=10)
+        resp = session.post(target_url, data=payload, timeout=15)
         
-        # กรณี Session หลุด ให้ Login ใหม่แล้วยิงซ้ำ
-        if "login" in resp.url.lower() or "login" in resp.text.lower():
-            login_to_pingap()
-            resp = session.post(f"{PINGAP_BASE_URL}/ap_config", data=payload, timeout=10)
+        # ตรวจสอบว่าถูก Cloudflare บล็อกหรือไม่
+        if "Attention Required!" in resp.text or "Cloudflare" in resp.text:
+            return {
+                "status": "error",
+                "capwap_config": "❌ Request ถูก Cloudflare บล็อก (Cloudflare WAF Blocked)",
+                "address": "-"
+            }
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         
         # --- 1. แกะ Config CAPWAP ---
-        # ค้นหาในแท็ก <textarea>, <pre>, <code> หรือข้อความทั้งหมดในหน้า
         capwap_lines = []
-        
-        # ดึงจาก Textarea / Pre ก่อน (จุดที่มักจะเก็บ Config)
-        text_containers = soup.find_all(['textarea', 'pre', 'code'])
-        raw_text_sources = [c.get_text() for c in text_containers] if text_containers else [soup.get_text()]
-        
-        full_raw_text = "\n".join(raw_text_sources)
-        
-        for line in full_raw_text.splitlines():
+        for line in soup.get_text().splitlines():
             line_str = line.strip()
-            # ค้นหาบรรทัดที่มีคำว่า capwap หรือ config
-            if re.search(r'capwap', line_str, re.IGNORECASE):
+            if line_str and any(k in line_str.lower() for k in ['capwap', 'ap name', 'controller', 'ip name', 'cisco']):
                 capwap_lines.append(line_str)
 
         capwap_config = "\n".join(capwap_lines) if capwap_lines else ""
@@ -434,7 +433,6 @@ def get_ap_config_api(req: ConfigRequest):
         site_name = ""
         address = ""
 
-        # ค้นหาตามตาราง
         for row in soup.find_all('tr'):
             row_text = row.get_text(strip=True)
             if "SITE_NAME" in row_text.upper():
@@ -451,9 +449,7 @@ def get_ap_config_api(req: ConfigRequest):
                 else:
                     address = row_text.replace("ADDRESS", "").strip(" :")
 
-        # Fallback: ถ้าหาในตารางไม่เจอ แต่มีข้อมูลส่งกลับมา
         if not capwap_config and not site_name:
-            # ถ้า Response ไม่ว่างเปล่า ให้แสดงข้อความดิบไว้ตรวจสอบ
             if len(resp.text) > 100:
                 capwap_config = "⚠️ ดึงข้อมูลสำเร็จ แต่ไม่พบบรรทัด 'capwap'\nตรวจสอบข้อมูลดิบชั่วคราว:\n" + soup.get_text()[:500]
 
@@ -817,7 +813,7 @@ def liff_page():
                         textBox.innerText = data.capwap_config || 'ไม่พบ Config CAPWAP';
                     }} else {{
                         locBox.innerHTML = '❌ ไม่สามารถโหลดข้อมูลสถานที่ได้';
-                        textBox.innerText = 'ไม่สามารถค้นหา Config ได้';
+                        textBox.innerText = data.capwap_config || 'ไม่สามารถค้นหา Config ได้';
                     }}
                 }} catch (e) {{
                     locBox.innerHTML = '⚠️ เกิดข้อผิดพลาดทางเครือข่าย';
