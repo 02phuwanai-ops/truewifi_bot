@@ -393,47 +393,83 @@ def ping_test_api(req: PingRequest):
 @app.post("/api/get_ap_config")
 def get_ap_config_api(req: ConfigRequest):
     """ดึง AP Config Template และสถานที่ติดตั้งจริงผ่าน Session"""
-    payload = {"ip": req.ip}
+    # ปรับ Payload ให้ครอบคลุมทุกแบบที่ฟอร์ม PingAP อาจจะใช้
+    payload = {
+        "ip": req.ip,
+        "ip_address": req.ip,
+        "submit": "Submit",
+        "search": "Search"
+    }
     
     try:
+        # ยิง Request
         resp = session.post(f"{PINGAP_BASE_URL}/ap_config", data=payload, timeout=10)
         
+        # กรณี Session หลุด ให้ Login ใหม่แล้วยิงซ้ำ
         if "login" in resp.url.lower() or "login" in resp.text.lower():
             login_to_pingap()
             resp = session.post(f"{PINGAP_BASE_URL}/ap_config", data=payload, timeout=10)
 
         soup = BeautifulSoup(resp.text, 'html.parser')
-        text_content = soup.get_text()
         
-        # ดึงคำสั่ง capwap
-        capwap_lines = [line.strip() for line in text_content.split('\n') if line.strip().lower().startswith('capwap')]
-        capwap_config = "\n".join(capwap_lines)
+        # --- 1. แกะ Config CAPWAP ---
+        # ค้นหาในแท็ก <textarea>, <pre>, <code> หรือข้อความทั้งหมดในหน้า
+        capwap_lines = []
+        
+        # ดึงจาก Textarea / Pre ก่อน (จุดที่มักจะเก็บ Config)
+        text_containers = soup.find_all(['textarea', 'pre', 'code'])
+        raw_text_sources = [c.get_text() for c in text_containers] if text_containers else [soup.get_text()]
+        
+        full_raw_text = "\n".join(raw_text_sources)
+        
+        for line in full_raw_text.splitlines():
+            line_str = line.strip()
+            # ค้นหาบรรทัดที่มีคำว่า capwap หรือ config
+            if re.search(r'capwap', line_str, re.IGNORECASE):
+                capwap_lines.append(line_str)
 
-        # ดึงข้อมูล Site Name และ Address
+        capwap_config = "\n".join(capwap_lines) if capwap_lines else ""
+
+        # --- 2. แกะ Site Name และ Address ---
         site_name = ""
         address = ""
-        for t in soup.find_all('table'):
-            t_text = t.get_text()
-            if "SITE_NAME" in t_text or "ADDRESS" in t_text:
-                for row in t.find_all('tr'):
-                    r_text = row.get_text()
-                    if "SITE_NAME" in r_text:
-                        site_name = r_text.replace("SITE_NAME", "").strip(" :")
-                    if "ADDRESS" in r_text:
-                        address = r_text.replace("ADDRESS", "").strip(" :")
+
+        # ค้นหาตามตาราง
+        for row in soup.find_all('tr'):
+            row_text = row.get_text(strip=True)
+            if "SITE_NAME" in row_text.upper():
+                cols = row.find_all(['td', 'th'])
+                if len(cols) >= 2:
+                    site_name = cols[1].get_text(strip=True)
+                else:
+                    site_name = row_text.replace("SITE_NAME", "").strip(" :")
+                    
+            if "ADDRESS" in row_text.upper():
+                cols = row.find_all(['td', 'th'])
+                if len(cols) >= 2:
+                    address = cols[1].get_text(strip=True)
+                else:
+                    address = row_text.replace("ADDRESS", "").strip(" :")
+
+        # Fallback: ถ้าหาในตารางไม่เจอ แต่มีข้อมูลส่งกลับมา
+        if not capwap_config and not site_name:
+            # ถ้า Response ไม่ว่างเปล่า ให้แสดงข้อความดิบไว้ตรวจสอบ
+            if len(resp.text) > 100:
+                capwap_config = "⚠️ ดึงข้อมูลสำเร็จ แต่ไม่พบบรรทัด 'capwap'\nตรวจสอบข้อมูลดิบชั่วคราว:\n" + soup.get_text()[:500]
 
         return {
             "status": "success",
             "ip": req.ip,
-            "site_name": site_name,
-            "address": address,
-            "capwap_config": capwap_config
+            "site_name": site_name if site_name else "-",
+            "address": address if address else "-",
+            "capwap_config": capwap_config if capwap_config else "ไม่พบ Config CAPWAP"
         }
+
     except Exception as e:
         return {
             "status": "error",
             "message": str(e),
-            "capwap_config": "",
+            "capwap_config": "เกิดข้อผิดพลาดในการดึง Config",
             "address": "ไม่สามารถดึงข้อมูลสถานที่ได้"
         }
 
