@@ -45,7 +45,7 @@ ALLOWED_BCODES = ['B104', 'B111', 'B112', 'B113']
 AREA_CONFIG = [
     {
         "id": "area1", 
-        "name": "1. พระโขนง / บางจาก (B113)", 
+        "name": "1. พระโขนง (B113)", 
         "keywords": ['B113', 'พระโขนง', 'บางจาก', 'True Digital Park']
     },
     {
@@ -55,7 +55,7 @@ AREA_CONFIG = [
     },
     {
         "id": "area3", 
-        "name": "3. วัฒนา / คลองตันเหนือ (B112)", 
+        "name": "3. วัฒนา (B112)", 
         "keywords": ['B112', 'วัฒนา', 'คลองตันเหนือ', 'Samitivej', 'Terminal 21']
     },
     {
@@ -72,12 +72,12 @@ AREA_CONFIG = [
     },
     {
         "id": "area5", 
-        "name": "5. ลาดพร้าว / จรเข้บัว (B111)", 
+        "name": "5. ลาดพร้าว (B111)", 
         "keywords": ['B111', 'ลาดพร้าว', 'จรเข้บัว', 'Eastville', 'สตรีวิทยา 2']
     },
     {
         "id": "area6", 
-        "name": "6. วังทองหลาง / พลับพลา", 
+        "name": "6. วังทองหลาง", 
         "keywords": ['วังทองหลาง', 'พลับพลา', 'Lotus Ramintra']
     }
 ]
@@ -397,7 +397,7 @@ async def ping_test_api(req: PingRequest):
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ดึงข้อมูล AP Config และ ADDRESS โดยไม่รอ table เพื่อป้องกัน Timeout"""
+    """ยิง Form POST โดยตรง ไม่ต้องพึ่งการคลิก UI เพื่อความแม่นยำ 100%"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -407,51 +407,43 @@ async def get_ap_config_api(req: ConfigRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
+            # 1. เข้าหน้าแรกเพื่อรับ Session / Cookie
             target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-            await page.goto(target_url, wait_until="networkidle", timeout=30000)
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
             await login_if_needed(page)
 
-            if "wifi/index.asp" not in page.url:
-                await page.goto(target_url, wait_until="networkidle", timeout=30000)
+            # 2. กรอก IP และเลือก Dropdown แบบใช้ JS เพื่อบังคับค่าโดยตรง
+            await page.evaluate(f"""() => {{
+                const ipInput = document.querySelector("input[name='ip'], input[name='ip_ap']");
+                if (ipInput) ipInput.value = '{req.ip}';
 
-            # 1. กรอก IP AP
-            if await page.locator("input[name='ip']").count() > 0:
-                await page.fill("input[name='ip']", req.ip)
-            elif await page.locator("input[name='ip_ap']").count() > 0:
-                await page.fill("input[name='ip_ap']", req.ip)
-
-            # 2. เลือก Model "Cisco 18XX,28XX,911X"
-            model_select = page.locator("select[name='model'], select[name='Model'], select")
-            if await model_select.count() > 0:
-                try:
-                    await model_select.first.select_option(label="Cisco 18XX,28XX,911X")
-                except Exception:
-                    options = await model_select.first.locator("option").all()
-                    for opt in options:
-                        txt = await opt.inner_text()
-                        if "18XX" in txt:
-                            val = await opt.get_attribute("value")
-                            if val is not None:
-                                await model_select.first.select_option(value=val)
-                            else:
-                                await model_select.first.select_option(label=txt)
-                            break
+                const select = document.querySelector("select");
+                if (select) {{
+                    for (let option of select.options) {{
+                        if (option.text.includes("18XX")) {{
+                            select.value = option.value;
+                            break;
+                        }}
+                    }}
+                }}
+            }}""")
 
             await asyncio.sleep(0.5)
 
-            # 3. กดปุ่ม Command
-            cmd_btn = page.locator("input[value='Command'], input[type='submit'], button:has-text('Command')")
-            if await cmd_btn.count() > 0:
-                await cmd_btn.first.click()
-            else:
-                await page.keyboard.press("Enter")
+            # 3. สั่ง Submit Form ผ่าน JavaScript โดยตรง (ข้ามปัญหาปุ่มคลิกไม่ติด)
+            await page.evaluate("""() => {
+                const form = document.querySelector("form");
+                if (form) {
+                    form.submit();
+                } else {
+                    const btn = document.querySelector("input[type='submit'], input[value='Command']");
+                    if (btn) btn.click();
+                }
+            }""")
 
-            # 4. รอโหลดหน้าเว็บใหม่แบบยืดหยุ่น (ใช้ sleep + networkidle แทน wait_for_selector)
+            # 4. รอหน้าเว็บตอบกลับข้อมูล
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
             await asyncio.sleep(2)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=10000)
-            except Exception:
-                pass  # หาก networkidle ช้า ให้ข้ามไปอ่าน HTML ได้เลย
 
             html_content = await page.content()
             await browser.close()
@@ -459,7 +451,7 @@ async def get_ap_config_api(req: ConfigRequest):
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 1. ดึง ADDRESS (สกัดเฉพาะบรรทัดแรก)
+            # ดึง ADDRESS (บรรทัดแรก)
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
@@ -477,15 +469,16 @@ async def get_ap_config_api(req: ConfigRequest):
                         raw_addr = cols[1].get_text("\n", strip=True)
                         lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
                         if lines:
-                            address_text = lines[0] # ตัดเอากรอกสั้นๆ แค่บรรทัดแรก
+                            address_text = lines[0]
 
             # -------------------------------------------------------------
-            # 2. ดึง CAPWAP Config (กรองบรรทัดขึ้นต้นด้วย capwap ap)
+            # ดึง CAPWAP Config
             # -------------------------------------------------------------
             capwap_lines = []
             for line in soup.get_text().splitlines():
                 line_str = line.strip()
-                if line_str.lower().startswith("capwap ap"):
+                # ตรวจจับคำว่า capwap ทั้งตัวพิมพ์เล็กและตัวพิมพ์ใหญ่
+                if "capwap ap" in line_str.lower():
                     capwap_lines.append(line_str)
 
             capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
@@ -503,7 +496,7 @@ async def get_ap_config_api(req: ConfigRequest):
         return {
             "status": "error",
             "message": str(e),
-            "capwap_config": f"เกิดข้อผิดพลาดในการดึงข้อมูล: {str(e)[:60]}",
+            "capwap_config": f"เกิดข้อผิดพลาด: {str(e)[:60]}",
             "address": "-"
         }
 
