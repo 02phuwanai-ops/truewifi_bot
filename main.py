@@ -397,7 +397,7 @@ async def ping_test_api(req: PingRequest):
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ดึง AP Config และ ADDRESS ตามรูปแบบที่กำหนด"""
+    """ดึงข้อมูล AP Config และ ADDRESS โดยเจาะจงเลือก Model Cisco 18XX,28XX,911X"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -414,33 +414,57 @@ async def get_ap_config_api(req: ConfigRequest):
             if "wifi/index.asp" not in page.url:
                 await page.goto(target_url, wait_until="networkidle", timeout=30000)
 
-            # ใส่ IP AP แล้วกดค้นหา
+            # 1. กรอก IP AP
             if await page.locator("input[name='ip']").count() > 0:
                 await page.fill("input[name='ip']", req.ip)
             elif await page.locator("input[name='ip_ap']").count() > 0:
                 await page.fill("input[name='ip_ap']", req.ip)
 
-            await asyncio.sleep(1)
+            # 2. เจาะจงเลือก Dropdown Model AP เป็น "Cisco 18XX,28XX,911X"
+            model_select = page.locator("select[name='model'], select[name='Model'], select")
+            if await model_select.count() > 0:
+                try:
+                    # เลือกด้วยข้อความตรงๆ ที่ปรากฏใน Dropdown
+                    await model_select.first.select_option(label="Cisco 18XX,28XX,911X")
+                except Exception:
+                    # สำรอง: หากเลือกด้วย label ไม่ได้ ให้หา option ที่มีคำว่า 18XX แล้วเลือกด้วย value
+                    options = await model_select.first.locator("option").all()
+                    for opt in options:
+                        txt = await opt.inner_text()
+                        if "18XX" in txt:
+                            val = await opt.get_attribute("value")
+                            if val is not None:
+                                await model_select.first.select_option(value=val)
+                            else:
+                                await model_select.first.select_option(label=txt)
+                            break
 
-            if await page.locator("input[name='btnSubmit']").count() > 0:
-                await page.click("input[name='btnSubmit']")
-            elif await page.locator("input[type='submit']").count() > 0:
-                await page.click("input[type='submit']")
+            await asyncio.sleep(0.5)
 
+            # 3. กดปุ่ม Command
+            cmd_btn = page.locator("input[value='Command'], input[type='submit'], button:has-text('Command')")
+            if await cmd_btn.count() > 0:
+                await cmd_btn.first.click()
+            else:
+                await page.keyboard.press("Enter")
+
+            # รอหน้าเว็บประมวลผลและโหลดตารางข้อมูลกลับมา
             await page.wait_for_load_state("networkidle", timeout=30000)
+            await page.wait_for_selector("table", timeout=15000)
+
             html_content = await page.content()
             await browser.close()
 
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 1. จัดการส่วน ADDRESS (ตัดเอากรอกสั้นๆ แค่บรรทัดแรก)
+            # 1. ดึง ADDRESS (สกัดเฉพาะบรรทัดแรก)
             # -------------------------------------------------------------
-            address_text = "-"
             site_name = "-"
+            address_text = "-"
 
             for row in soup.find_all('tr'):
-                row_text = row.get_text(strip=True)
+                row_text = row.get_text(" ", strip=True)
                 if "SITE_NAME" in row_text.upper():
                     cols = row.find_all(['td', 'th'])
                     if len(cols) >= 2:
@@ -450,22 +474,19 @@ async def get_ap_config_api(req: ConfigRequest):
                     cols = row.find_all(['td', 'th'])
                     if len(cols) >= 2:
                         raw_addr = cols[1].get_text("\n", strip=True)
-                        # เอาเฉพาะบรรทัดแรกที่ระบุตำแหน่ง (เช่น CFEV-FL01-AP41-P ... อยู่ใน FOOD HALL)
                         lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
                         if lines:
-                            address_text = lines[0]
+                            address_text = lines[0] # ตัดเอากรอกสั้นๆ แค่บรรทัดแรกตามต้องการ
 
             # -------------------------------------------------------------
-            # 2. จัดการส่วน CAPWAP Config (ดึงเฉพาะ บรรทัดขึ้นต้นด้วย capwap ap)
+            # 2. ดึง CAPWAP Config (กรองเอาเฉพาะบรรทัด capwap ap)
             # -------------------------------------------------------------
             capwap_lines = []
             for line in soup.get_text().splitlines():
                 line_str = line.strip()
-                # กรองเอาเฉพาะบรรทัดที่ขึ้นต้นด้วย 'capwap ap'
                 if line_str.lower().startswith("capwap ap"):
                     capwap_lines.append(line_str)
 
-            # นำคำสั่งมารวมกันโดยเว้นบรรทัด
             capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
 
             return {
@@ -481,8 +502,8 @@ async def get_ap_config_api(req: ConfigRequest):
         return {
             "status": "error",
             "message": str(e),
-            "capwap_config": f"เกิดข้อผิดพลาด: {str(e)[:60]}",
-            "address": "ไม่สามารถดึงข้อมูลสถานที่ได้"
+            "capwap_config": f"เกิดข้อผิดพลาดในการดึงข้อมูล: {str(e)[:60]}",
+            "address": "-"
         }
 
 @app.get("/liff", response_class=HTMLResponse)
