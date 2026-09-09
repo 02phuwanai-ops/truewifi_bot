@@ -399,7 +399,7 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ดึงข้อมูล AP Config แบบอัปเดตตาม Text บนหน้าเว็บโดยไม่กด Submit"""
+    """ดึงข้อมูล AP Config พร้อม พิมพ์ Log รายละเอียด Element เพื่อแก้ปัญหาอย่างตรงจุด"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -409,56 +409,75 @@ async def get_ap_config_api(req: ConfigRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
-            # 1. เข้าหน้า AP Config Template
+            # 1. เข้าหน้าเว็บ AP Config
             target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(target_url, wait_until="networkidle", timeout=30000)
             await login_if_needed(page)
 
             if "wifi/index.asp" not in page.url:
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(target_url, wait_until="networkidle", timeout=30000)
 
-            # 2. กรอก IP AP และพิมพ์เลียนแบบคน (Type) เพื่อให้ Event ทำงาน
-            ip_field = page.locator("input[name='ip'], input[name='ip_ap'], input[type='text']").first
-            if await ip_field.count() > 0:
-                await ip_field.click()
-                await ip_field.fill("") # ล้างค่าเก่า
-                await ip_field.type(req.ip, delay=50) # พิมพ์ทีละตัวอักษรเพื่อส่ง Event
-                await ip_field.press("Tab") # ย้ายโฟกัสออก (trigger blur event)
+            # 2. บังคับยัดค่าด้วย JS และกด Trigger Event ทุกรูปแบบ (ทั้ง change, keyup, click)
+            result_debug = await page.evaluate(f"""() => {{
+                let logs = [];
+                // หาช่อง IP
+                const inputs = Array.from(document.querySelectorAll("input"));
+                const ipInput = inputs.find(i => i.type === 'text' || i.name.includes('ip') || i.id.includes('ip'));
+                
+                if (ipInput) {{
+                    ipInput.value = '{req.ip}';
+                    ipInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    ipInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    ipInput.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                    ipInput.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter' }}));
+                    logs.push("Found IP input and filled.");
+                }} else {{
+                    logs.push("IP input NOT found.");
+                }}
 
-            # 3. เลือก Dropdown Model "Cisco 18XX,28XX,911X"
-            select_field = page.locator("select").first
-            if await select_field.count() > 0:
-                options = await select_field.locator("option").all()
-                for opt in options:
-                    txt = await opt.inner_text()
-                    if "18XX" in txt:
-                        val = await opt.get_attribute("value")
-                        if val is not None:
-                            await select_field.select_option(value=val)
-                        else:
-                            await select_field.select_option(label=txt)
-                        break
+                // หา Dropdown Model
+                const select = document.querySelector("select");
+                if (select) {{
+                    for (let i = 0; i < select.options.length; i++) {{
+                        if (select.options[i].text.includes("18XX")) {{
+                            select.selectedIndex = i;
+                            select.options[i].selected = true;
+                            select.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            logs.push("Selected 18XX model.");
+                            break;
+                        }}
+                    }}
+                }} else {{
+                    logs.push("Select element NOT found.");
+                }}
 
-            # 4. ส่ง JS Dispatch Events บังคับให้สคริปต์หน้าเว็บคำนวณ Text ทันที
-            await page.evaluate("""() => {
-                const inputs = document.querySelectorAll("input, select");
-                inputs.forEach(el => {
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    el.dispatchEvent(new Event('blur', { bubbles: true }));
-                });
-            }""")
+                // หากมีฟังก์ชัน JS ของหน้าเว็บเองที่ใช้คำนวณ ให้ลองเรียก (เช่น calc, submit, search, generate)
+                if (typeof window.check_config === 'function') window.check_config();
+                if (typeof window.doSearch === 'function') window.doSearch();
 
-            # 5. รอให้ JavaScript บนหน้าเว็บประมวลผลข้อความและ Render ออกมา (รอ 3 วินาที)
-            await asyncio.sleep(3)
+                return logs.join(" | ");
+            }}""")
+
+            print(f"🔍 DEBUG LOG: {result_debug}")
+
+            # 3. รอ 4 วินาที ให้ JS หน้าเว็บประมวลผลข้อความออกมา
+            await asyncio.sleep(4)
 
             html_content = await page.content()
             await browser.close()
 
             soup = BeautifulSoup(html_content, 'html.parser')
 
+            # --- พิมพ์ดูข้อความทั้งหมดที่ดึงได้ลง Render Log ---
+            full_text = soup.get_text()
+            print(f"📄 PAGE TEXT LENGTH: {len(full_text)}")
+            if "18XX" in full_text:
+                print("✅ Found '18XX' in page content!")
+            else:
+                print("❌ '18XX' NOT found in page content!")
+
             # -------------------------------------------------------------
-            # 6. ดึง ADDRESS & SITE_NAME
+            # 4. ดึง ADDRESS & SITE_NAME
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
@@ -476,13 +495,13 @@ async def get_ap_config_api(req: ConfigRequest):
                         raw_addr = cols[1].get_text("\n", strip=True)
                         lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
                         if lines:
-                            address_text = lines[0] # ตัดเอากรอกสั้นๆ แค่บรรทัดแรก
+                            address_text = lines[0]
 
             # -------------------------------------------------------------
-            # 7. ดึง CAPWAP Config (ดึงทุกบรรทัดที่มี capwap)
+            # 5. ดึง CAPWAP Config
             # -------------------------------------------------------------
             capwap_lines = []
-            for line in soup.get_text().splitlines():
+            for line in full_text.splitlines():
                 line_str = line.strip()
                 if "capwap" in line_str.lower():
                     capwap_lines.append(line_str)
