@@ -466,67 +466,91 @@ async def get_ap_config_api(req: ConfigRequest):
                 }}
             }}""")
 
-            # 5. รอให้หน้าเว็บประมวลผลและโหลดผลลัพธ์ (เพิ่มเวลาและรอ network idle)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            await asyncio.sleep(4)
+            # 5. รอ 3.5 วินาที ให้ตารางและคำสั่ง CAPWAP Render บนหน้าจอ
+            await asyncio.sleep(3.5)
 
-            # 6. ดึง HTML Content ล่าสุดหลังจากกด Submit แล้ว
+            # 6. ดึง HTML Content ออกมาอ่านข้อความ
+            #    *** สำคัญ: ยังไม่ปิด browser เพราะ textarea อาจถูกเติมค่าด้วย JavaScript ***
             if target_frame:
-                try:
-                    html_content = await target_frame.content()
-                except Exception:
-                    html_content = await page.content()
+                html_content = await target_frame.content()
             else:
                 html_content = await page.content()
 
-            await browser.close()
-
             soup = BeautifulSoup(html_content, 'html.parser')
 
+            # -------------------------------------------------------------
             # 7. ดึง SITE_NAME & ADDRESS
+            #    ใช้ Playwright อ่านค่าปัจจุบันของ input/textarea โดยตรง
+            #    เพราะ BeautifulSoup จะไม่เห็นค่า textarea.value ที่ JS เติมให้
+            # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
 
-            for row in soup.find_all('tr'):
-                text = row.get_text(" ", strip=True).upper()
+            # --- วิธีใหม่: อ่านค่าจาก DOM ที่กำลังแสดงอยู่จริง ---
+            try:
+                site_row = eval_target.locator("tr").filter(has_text="SITE_NAME").first
+                if await site_row.count() > 0:
+                    site_input = site_row.locator("input").first
+                    if await site_input.count() > 0:
+                        value = await site_input.input_value()
+                        if value:
+                            site_name = value.strip()
+            except Exception as e:
+                print(f"⚠️ อ่าน SITE_NAME แบบ live ไม่สำเร็จ: {e}")
 
-                if "SITE_NAME" in text:
-                    inp = row.find('input')
-                    if inp and inp.get('value'):
-                        site_name = inp.get('value').strip()
+            try:
+                address_row = eval_target.locator("tr").filter(has_text="ADDRESS").first
+                if await address_row.count() > 0:
+                    address_area = address_row.locator("textarea").first
+                    if await address_area.count() > 0:
+                        # input_value() = ค่าที่ผู้ใช้เห็นจริงใน textarea
+                        value = await address_area.input_value()
+                        if value:
+                            address_text = value.strip()
+            except Exception as e:
+                print(f"⚠️ อ่าน ADDRESS แบบ live ไม่สำเร็จ: {e}")
 
-                if "ADDRESS" in text:
-                    txt_area = row.find('textarea')
-                    if txt_area:
-                        address_text = txt_area.get_text(strip=True)
+            # --- Fallback เดิม: ถ้า live DOM อ่านไม่ได้ ค่อยใช้ BeautifulSoup ---
+            if site_name == "-" or address_text == "-":
+                for row in soup.find_all('tr'):
+                    text = row.get_text(" ", strip=True).upper()
 
-            # 8. ดึงข้อความ CAPWAP Config (ปรับให้กวาดหาคำว่า capwap หรือดึงจากตารางผลลัพธ์ทั้งหมดถ้าไม่เจอตรงๆ)
+                    if site_name == "-" and "SITE_NAME" in text:
+                        inp = row.find('input')
+                        if inp and inp.get('value'):
+                            site_name = inp.get('value').strip()
+
+                    if address_text == "-" and "ADDRESS" in text:
+                        txt_area = row.find('textarea')
+                        if txt_area:
+                            address_text = txt_area.get_text(strip=True)
+
+            # จัดรูปแบบข้อความให้อ่านง่าย และเอาส่วนหลัง @ ออก
+            if address_text and address_text != "-":
+                address_text = re.sub(r"\s+", " ", address_text).strip()
+                if "@" in address_text:
+                    address_text = address_text.split("@", 1)[0].strip()
+
+            # อ่านเสร็จแล้วค่อยปิด browser
+            await browser.close()
+
+            # -------------------------------------------------------------
+            # 8. ดึงข้อความ CAPWAP Config
+            # -------------------------------------------------------------
             capwap_lines = []
-            
-            # ค้นหาจากทุก tag ที่มีความเป็นไปได้ หรือดึงข้อความจาก pre/code/td ที่แสดงผลลัพธ์
-            for element in soup.find_all(['pre', 'code', 'td', 'span', 'div']):
-                el_text = element.get_text(strip=True)
-                if "capwap" in el_text.lower():
-                    capwap_lines.append(el_text)
+            for line in soup.get_text().splitlines():
+                line_str = line.strip()
+                if "capwap" in line_str.lower():
+                    capwap_lines.append(line_str)
 
-            # ถ้ายังไม่เจอ ลองดึงบรรทัดที่มีคีย์เวิร์ดสำรอง หรือดึง text ทั้งหมดที่เกี่ยวกับ config มาแสดง
-            if not capwap_lines:
-                for line in soup.get_text().splitlines():
-                    line_str = line.strip()
-                    if line_str and any(k in line_str.lower() for k in ["capwap", "wtp", "ac-ip", "controller"]):
-                        capwap_lines.append(line_str)
-
-            capwap_config = "\n".join(list(set(capwap_lines))) if capwap_lines else "ไม่พบ Config CAPWAP"
+            capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
 
             return {
                 "status": "success",
                 "ip": req.ip,
                 "site_name": site_name,
                 "address": address_text,
-                "capwap_config": capwap_config
+                "capwap_config": address_text if address_text != "-" else capwap_config
             }
 
     except Exception as e:
