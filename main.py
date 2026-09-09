@@ -424,20 +424,8 @@ async def get_ap_config_api(req: ConfigRequest):
 
             await asyncio.sleep(2)
 
-            # 3. ค้นหา Frame / Sub-frame ที่เป็นตัวเก็บช่อง #APIP
-            target_frame = None
-            for frame in page.frames:
-                try:
-                    if await frame.locator("#APIP").count() > 0:
-                        target_frame = frame
-                        break
-                except Exception:
-                    continue
-
-            # ถ้าหาใน sub-frame ไม่เจอ ให้ใช้หน้าหลัก (page) เป็นหลัก
-            eval_target = target_frame if target_frame else page
-
             # 4. กรอก IP, เลือก Model และกด Submit ภายใน Frame เป้าหมาย
+            # ใช้ JavaScript ตาม flow เดิม เพื่อไม่กระทบระบบเดิม
             await eval_target.evaluate(f"""() => {{
                 const ipEl = document.querySelector("#APIP") || document.querySelector("input[type='text']");
                 if (ipEl) {{
@@ -466,11 +454,13 @@ async def get_ap_config_api(req: ConfigRequest):
                 }}
             }}""")
 
-            # 5. รอ 3.5 วินาที ให้ตารางและคำสั่ง CAPWAP Render บนหน้าจอ
-            await asyncio.sleep(3.5)
+            # 5. รอให้ระบบประมวลผลและสร้างผลลัพธ์
+            await asyncio.sleep(5)
 
-            # 6. ดึง HTML Content ออกมาอ่านข้อความ
-            #    *** สำคัญ: ยังไม่ปิด browser เพราะ textarea อาจถูกเติมค่าด้วย JavaScript ***
+            # -------------------------------------------------------------
+            # 6. อ่าน HTML หลัง Submit
+            #    สำคัญ: ห้ามปิด browser ก่อนอ่านค่า .value ของ form controls
+            # -------------------------------------------------------------
             if target_frame:
                 html_content = await target_frame.content()
             else:
@@ -479,57 +469,224 @@ async def get_ap_config_api(req: ConfigRequest):
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 7. ดึง SITE_NAME & ADDRESS
-            #    ใช้ Playwright อ่านค่าปัจจุบันของ input/textarea โดยตรง
-            #    เพราะ BeautifulSoup จะไม่เห็นค่า textarea.value ที่ JS เติมให้
+            # 7. ดึง SITE_NAME / ADDRESS แบบ Robust
+            #
+            # ปัญหาของวิธีเดิม:
+            #   locator("tr").filter(has_text="ADDRESS")
+            # อาจไม่เจอ ถ้าหน้าเว็บสร้าง/เปลี่ยน DOM หลัง submit
+            #
+            # วิธีนี้จะตรวจทุก frame และตรวจทั้ง input + textarea
+            # โดยดูจาก id/name/label/ข้อความของแถวรอบ element
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
 
-            # --- วิธีใหม่: อ่านค่าจาก DOM ที่กำลังแสดงอยู่จริง ---
-            try:
-                site_row = eval_target.locator("tr").filter(has_text="SITE_NAME").first
-                if await site_row.count() > 0:
-                    site_input = site_row.locator("input").first
-                    if await site_input.count() > 0:
-                        value = await site_input.input_value()
-                        if value:
-                            site_name = value.strip()
-            except Exception as e:
-                print(f"⚠️ อ่าน SITE_NAME แบบ live ไม่สำเร็จ: {e}")
+            async def scan_frame_controls(frame):
+                try:
+                    return await frame.evaluate("""() => {
+                        const result = [];
 
-            try:
-                address_row = eval_target.locator("tr").filter(has_text="ADDRESS").first
-                if await address_row.count() > 0:
-                    address_area = address_row.locator("textarea").first
-                    if await address_area.count() > 0:
-                        # input_value() = ค่าที่ผู้ใช้เห็นจริงใน textarea
-                        value = await address_area.input_value()
-                        if value:
-                            address_text = value.strip()
-            except Exception as e:
-                print(f"⚠️ อ่าน ADDRESS แบบ live ไม่สำเร็จ: {e}")
+                        const clean = (v) => String(v || '')
+                            .replace(/\\s+/g, ' ')
+                            .trim();
 
-            # --- Fallback เดิม: ถ้า live DOM อ่านไม่ได้ ค่อยใช้ BeautifulSoup ---
+                        const controls = Array.from(
+                            document.querySelectorAll('input, textarea')
+                        );
+
+                        for (const el of controls) {
+                            const value = clean(el.value);
+                            const id = clean(el.id);
+                            const name = clean(el.getAttribute('name'));
+                            const placeholder = clean(el.getAttribute('placeholder'));
+                            const cls = clean(el.className);
+
+                            // หา label/context รอบ element
+                            const row = el.closest('tr');
+                            const parent = row || el.parentElement;
+                            const context = clean(parent ? parent.innerText : '');
+
+                            result.push({
+                                tag: el.tagName.toLowerCase(),
+                                value: value,
+                                id: id,
+                                name: name,
+                                placeholder: placeholder,
+                                className: cls,
+                                context: context
+                            });
+                        }
+
+                        return result;
+                    }""")
+                except Exception as e:
+                    print(f"⚠️ scan frame ไม่สำเร็จ: {e}")
+                    return []
+
+            # รออีกเล็กน้อย เผื่อ JavaScript ฝั่งเว็บเพิ่งเติมค่า
+            await asyncio.sleep(1)
+
+            all_candidates = []
+
+            # page.frames จะรวม main frame และ sub-frame ที่เกิดขึ้นหลัง submit
+            for idx, frame in enumerate(page.frames):
+                try:
+                    candidates = await scan_frame_controls(frame)
+
+                    print(
+                        f"🔎 AP Config Frame {idx}: "
+                        f"url={frame.url} | controls={len(candidates)}"
+                    )
+
+                    for item in candidates:
+                        if item.get("value"):
+                            all_candidates.append({
+                                "frame": idx,
+                                "frame_url": frame.url,
+                                **item
+                            })
+
+                except Exception as e:
+                    print(f"⚠️ อ่าน frame {idx} ไม่สำเร็จ: {e}")
+
+            # Debug เฉพาะ control ที่มีค่า ไม่ dump password/input ว่างทั้งหมด
+            for item in all_candidates:
+                context_upper = item.get("context", "").upper()
+                id_upper = item.get("id", "").upper()
+                name_upper = item.get("name", "").upper()
+
+                if (
+                    "ADDRESS" in context_upper
+                    or "SITE_NAME" in context_upper
+                    or "ADDRESS" in id_upper
+                    or "SITE_NAME" in id_upper
+                    or "ADDRESS" in name_upper
+                    or "SITE_NAME" in name_upper
+                ):
+                    print(
+                        "🧩 AP Config Candidate:",
+                        {
+                            "frame": item.get("frame"),
+                            "tag": item.get("tag"),
+                            "id": item.get("id"),
+                            "name": item.get("name"),
+                            "value": item.get("value"),
+                            "context": item.get("context")[:300]
+                        }
+                    )
+
+            # -------------------------------------------------------------
+            # 7.1 เลือก SITE_NAME
+            # -------------------------------------------------------------
+            for item in all_candidates:
+                id_name = (
+                    f"{item.get('id', '')} "
+                    f"{item.get('name', '')} "
+                    f"{item.get('placeholder', '')}"
+                ).upper()
+                context = item.get("context", "").upper()
+                value = item.get("value", "").strip()
+
+                if not value:
+                    continue
+
+                if "SITE_NAME" in id_name or "SITE_NAME" in context:
+                    site_name = value
+                    break
+
+            # -------------------------------------------------------------
+            # 7.2 เลือก ADDRESS
+            # -------------------------------------------------------------
+            for item in all_candidates:
+                id_name = (
+                    f"{item.get('id', '')} "
+                    f"{item.get('name', '')} "
+                    f"{item.get('placeholder', '')}"
+                ).upper()
+                context = item.get("context", "").upper()
+                value = item.get("value", "").strip()
+
+                if not value:
+                    continue
+
+                if "ADDRESS" in id_name or "ADDRESS" in context:
+                    address_text = value
+                    break
+
+            # -------------------------------------------------------------
+            # 7.3 Fallback: ใช้ selector ตรง ๆ ในทุก frame
+            # -------------------------------------------------------------
+            if address_text == "-":
+                for frame in page.frames:
+                    try:
+                        selectors = [
+                            "textarea[name='ADDRESS']",
+                            "textarea#ADDRESS",
+                            "textarea[id*='ADDRESS' i]",
+                            "textarea[name*='ADDRESS' i]",
+                            "input[name='ADDRESS']",
+                            "input#ADDRESS",
+                            "input[id*='ADDRESS' i]",
+                            "input[name*='ADDRESS' i]",
+                        ]
+
+                        for selector in selectors:
+                            loc = frame.locator(selector).first
+                            if await loc.count() > 0:
+                                try:
+                                    value = (await loc.input_value()).strip()
+                                    if value:
+                                        address_text = value
+                                        print(
+                                            f"✅ ADDRESS พบจาก selector {selector}: "
+                                            f"{address_text}"
+                                        )
+                                        break
+                                except Exception:
+                                    pass
+
+                        if address_text != "-":
+                            break
+
+                    except Exception as e:
+                        print(f"⚠️ ADDRESS selector fallback error: {e}")
+
+            # -------------------------------------------------------------
+            # 7.4 Fallback จาก BeautifulSoup
+            # -------------------------------------------------------------
             if site_name == "-" or address_text == "-":
                 for row in soup.find_all('tr'):
-                    text = row.get_text(" ", strip=True).upper()
+                    row_text = row.get_text(" ", strip=True)
+                    row_upper = row_text.upper()
 
-                    if site_name == "-" and "SITE_NAME" in text:
+                    if site_name == "-" and "SITE_NAME" in row_upper:
                         inp = row.find('input')
                         if inp and inp.get('value'):
                             site_name = inp.get('value').strip()
 
-                    if address_text == "-" and "ADDRESS" in text:
+                    if address_text == "-" and "ADDRESS" in row_upper:
                         txt_area = row.find('textarea')
                         if txt_area:
-                            address_text = txt_area.get_text(strip=True)
+                            # textarea.value ไม่อยู่ใน text node
+                            # แต่บางหน้าอาจใส่ค่าไว้ใน text node จึงเก็บไว้เป็น fallback
+                            value = txt_area.get('value')
+                            if value:
+                                address_text = value.strip()
+                            else:
+                                address_text = txt_area.get_text(" ", strip=True)
 
-            # จัดรูปแบบข้อความให้อ่านง่าย และเอาส่วนหลัง @ ออก
+            # จัดรูปแบบข้อความให้อ่านง่าย
             if address_text and address_text != "-":
                 address_text = re.sub(r"\s+", " ", address_text).strip()
+
+                # ถ้ามี metadata ต่อท้ายด้วย @ ให้เอาออกตาม logic เดิม
                 if "@" in address_text:
                     address_text = address_text.split("@", 1)[0].strip()
+
+            print(
+                f"📍 AP Config RESULT | "
+                f"SITE_NAME={site_name} | ADDRESS={address_text}"
+            )
 
             # อ่านเสร็จแล้วค่อยปิด browser
             await browser.close()
@@ -552,6 +709,7 @@ async def get_ap_config_api(req: ConfigRequest):
                 "address": address_text,
                 "capwap_config": address_text if address_text != "-" else capwap_config
             }
+
 
     except Exception as e:
         print(f"❌ AP Config Exception: {str(e)}")
