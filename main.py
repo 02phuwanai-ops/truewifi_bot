@@ -424,6 +424,20 @@ async def get_ap_config_api(req: ConfigRequest):
 
             await asyncio.sleep(2)
 
+            # 3. ค้นหา Frame ที่มีช่อง #APIP
+            #    ต้องกำหนด eval_target ก่อนใช้ในขั้นตอน Submit
+            target_frame = None
+            for frame in page.frames:
+                try:
+                    if await frame.locator("#APIP").count() > 0:
+                        target_frame = frame
+                        print(f"🎯 พบ AP Config Frame: {frame.url}")
+                        break
+                except Exception:
+                    continue
+
+            eval_target = target_frame if target_frame else page
+
             # 4. กรอก IP, เลือก Model และกด Submit ภายใน Frame เป้าหมาย
             # ใช้ JavaScript ตาม flow เดิม เพื่อไม่กระทบระบบเดิม
             await eval_target.evaluate(f"""() => {{
