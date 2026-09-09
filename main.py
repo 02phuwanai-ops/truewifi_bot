@@ -399,7 +399,7 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ดึงข้อมูลตรงจาก div#Content โดยไม่รอ Network Idle เพื่อเลี่ยง Timeout"""
+    """เข้าตาม Step ผู้ใช้จริง: Login -> กดเมนู -> เจาะ Sub-frame -> กรอก #APIP -> กด #SubmitButton"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -409,31 +409,44 @@ async def get_ap_config_api(req: ConfigRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
-            # 1. เข้าหน้าเว็บโดยตรง
-            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-            await page.goto(target_url, wait_until="commit", timeout=30000)
+            # 1. เข้าหน้าเว็บหลักและทำการ Login
+            await page.goto(PINGAP_BASE_URL, wait_until="domcontentloaded", timeout=30000)
             await login_if_needed(page)
 
-            if "wifi/index.asp" not in page.url:
-                await page.goto(target_url, wait_until="commit", timeout=30000)
+            # 2. กดปุ่มเมนู "AP Config Template" บนแถบเมนู
+            menu_locator = page.locator("a:has-text('AP Config Template'), td:has-text('AP Config Template')").first
+            if await menu_locator.count() > 0:
+                await menu_locator.click()
+                await page.wait_for_load_state("domcontentloaded")
+            else:
+                target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-            # 2. รอให้ div#Content ปรากฏบน DOM
-            await page.wait_for_selector("#Content", state="attached", timeout=15000)
+            await asyncio.sleep(2)
 
-            # 3. หยอดค่า IP และกดเลือก Model + Submit ผ่าน JS ใน div#Content โดยตรง
-            await page.evaluate(f"""() => {{
-                const contentArea = document.querySelector("#Content") || document;
-                
-                // กรอก IP
-                const ipInput = contentArea.querySelector("#APIP") || contentArea.querySelector("input[type='text']");
-                if (ipInput) {{
-                    ipInput.value = '{req.ip}';
-                    ipInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    ipInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            # 3. ค้นหา Frame / Sub-frame ที่เป็นตัวเก็บช่อง #APIP
+            target_frame = None
+            for frame in page.frames:
+                try:
+                    if await frame.locator("#APIP").count() > 0:
+                        target_frame = frame
+                        break
+                except Exception:
+                    continue
+
+            # ถ้าหาใน sub-frame ไม่เจอ ให้ใช้หน้าหลัก (page) เป็นหลัก
+            eval_target = target_frame if target_frame else page
+
+            # 4. กรอก IP, เลือก Model และกด Submit ภายใน Frame เป้าหมาย
+            await eval_target.evaluate(f"""() => {{
+                const ipEl = document.querySelector("#APIP") || document.querySelector("input[type='text']");
+                if (ipEl) {{
+                    ipEl.value = '{req.ip}';
+                    ipEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    ipEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
                 }}
 
-                // เลือก Model 18XX
-                const selectEl = contentArea.querySelector("#Model_AP") || contentArea.querySelector("select");
+                const selectEl = document.querySelector("#Model_AP") || document.querySelector("select");
                 if (selectEl) {{
                     for (let i = 0; i < selectEl.options.length; i++) {{
                         if (selectEl.options[i].text.includes("18XX")) {{
@@ -445,31 +458,29 @@ async def get_ap_config_api(req: ConfigRequest):
                     }}
                 }}
 
-                // กด Submit
-                const submitBtn = contentArea.querySelector("#SubmitButton") || contentArea.querySelector("input[type='submit']");
-                if (submitBtn) {{
-                    submitBtn.click();
-                }} else if (ipInput) {{
-                    const form = ipInput.closest("form");
-                    if (form) form.submit();
+                const btn = document.querySelector("#SubmitButton") || document.querySelector("input[type='submit']");
+                if (btn) {{
+                    btn.click();
+                }} else if (ipEl && ipEl.form) {{
+                    ipEl.form.submit();
                 }}
             }}""")
 
-            # 4. รอ 3 วินาทีให้ JS ภายในหน้าเว็บคำนวณและแสดง Text บนหน้าจอ
-            await asyncio.sleep(3)
+            # 5. รอ 3.5 วินาที ให้ตารางและคำสั่ง CAPWAP Render บนหน้าจอ
+            await asyncio.sleep(3.5)
 
-            # 5. ดึง HTML เฉพาะจาก div#Content
-            content_html = await page.evaluate("""() => {
-                const el = document.querySelector("#Content");
-                return el ? el.innerHTML : document.body.innerHTML;
-            }""")
-            
+            # 6. ดึง HTML Content ออกมาอ่านข้อความ
+            if target_frame:
+                html_content = await target_frame.content()
+            else:
+                html_content = await page.content()
+
             await browser.close()
 
-            soup = BeautifulSoup(content_html, 'html.parser')
+            soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 6. ดึง ADDRESS & SITE_NAME
+            # 7. ดึง SITE_NAME & ADDRESS
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
@@ -487,10 +498,10 @@ async def get_ap_config_api(req: ConfigRequest):
                         raw_addr = cols[1].get_text("\n", strip=True)
                         lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
                         if lines:
-                            address_text = lines[0] # เอาเฉพาะบรรทัดแรก
+                            address_text = lines[0]
 
             # -------------------------------------------------------------
-            # 7. ดึง CAPWAP Config
+            # 8. ดึงข้อความ CAPWAP Config
             # -------------------------------------------------------------
             capwap_lines = []
             for line in soup.get_text().splitlines():
