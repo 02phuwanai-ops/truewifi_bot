@@ -399,7 +399,7 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ดึงข้อมูล AP Config พร้อมระบบ Auto-Login เช็ค Session กันหลุด"""
+    """เข้าหน้าหลัก -> กดเมนู AP Config Template -> กรอก IP -> กด Submit"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -409,51 +409,63 @@ async def get_ap_config_api(req: ConfigRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
-            # 1. ไปหน้า AP Config Template Direct URL
-            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-            
-            # ตรวจสอบว่าติดหน้า Login หรือไม่ ถ้าติดให้ทำการ Login ก่อน
+            # 1. เข้าหน้าหลักเว็บ pingap และ Login
+            await page.goto(PINGAP_BASE_URL, wait_until="domcontentloaded", timeout=30000)
             await login_if_needed(page)
 
-            # ยืนยันอีกครั้งว่าเปิดมาหน้า wifi/index.asp จริงๆ
-            if "wifi/index.asp" not in page.url:
+            # 2. กดปุ่มเมนู "AP Config Template" บนแถบสีดำด้านบน
+            print("NAVIGATING: Clicking 'AP Config Template' menu...")
+            menu_btn = page.locator("a:has-text('AP Config Template'), td:has-text('AP Config Template')").first
+            if await menu_btn.count() > 0:
+                await menu_btn.click()
+                await page.wait_for_load_state("domcontentloaded")
+            else:
+                # ถ้าหาเมนูไม่เจอ ให้ไปที่ URL หน้า template ตรงๆ
+                target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-            # รอให้ Element พร้อมใช้งาน
-            await page.wait_for_selector("#APIP", timeout=15000)
+            await asyncio.sleep(1)
 
-            # 2. กรอก IP AP ในช่อง #APIP
-            await page.fill("#APIP", req.ip)
+            # 3. กรอก IP AP ในช่อง #APIP (ถ้าไม่เจอ ให้ลองหาแบบธรรมดา)
+            ip_input = page.locator("#APIP, input[name='ip'], input[type='text']").first
+            await ip_input.wait_for(state="visible", timeout=15000)
+            await ip_input.fill(req.ip)
 
-            # 3. เลือก Model ใน #Model_AP
-            select_el = page.locator("#Model_AP")
-            options = await select_el.locator("option").all()
-            for opt in options:
-                txt = await opt.inner_text()
-                if "18XX" in txt:
-                    val = await opt.get_attribute("value")
-                    if val is not None:
-                        await select_el.select_option(value=val)
-                    else:
-                        await select_el.select_option(label=txt)
-                    break
+            # 4. เลือก Model "Cisco 18XX,28XX,911X" ใน #Model_AP
+            select_el = page.locator("#Model_AP, select").first
+            if await select_el.count() > 0:
+                options = await select_el.locator("option").all()
+                for opt in options:
+                    txt = await opt.inner_text()
+                    if "18XX" in txt:
+                        val = await opt.get_attribute("value")
+                        if val is not None:
+                            await select_el.select_option(value=val)
+                        else:
+                            await select_el.select_option(label=txt)
+                        break
 
-            # 4. กดปุ่ม #SubmitButton และรอการประมวลผล
-            try:
-                async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
-                    await page.click("#SubmitButton")
-            except Exception:
-                await page.click("#SubmitButton")
+            # 5. กดปุ่ม Submit / Command และรอหน้าเว็บคำนวณ Text
+            submit_btn = page.locator("#SubmitButton, input[value='Command'], input[type='submit']").first
+            if await submit_btn.count() > 0:
+                try:
+                    async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
+                        await submit_btn.click()
+                except Exception:
+                    await submit_btn.click()
+                    await asyncio.sleep(3)
+            else:
+                await page.keyboard.press("Enter")
                 await asyncio.sleep(3)
 
+            # 6. อ่าน Content ทั้งหมดจากหน้าเว็บ
             html_content = await page.content()
             await browser.close()
 
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 5. ดึง ADDRESS & SITE_NAME
+            # 7. ดึง ADDRESS & SITE_NAME
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
@@ -471,10 +483,10 @@ async def get_ap_config_api(req: ConfigRequest):
                         raw_addr = cols[1].get_text("\n", strip=True)
                         lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
                         if lines:
-                            address_text = lines[0] # ตัดเอากรอกสั้นๆ แค่บรรทัดแรก
+                            address_text = lines[0] # ดึงบรรทัดแรก
 
             # -------------------------------------------------------------
-            # 6. ดึง CAPWAP Config
+            # 8. ดึง CAPWAP Config
             # -------------------------------------------------------------
             capwap_lines = []
             for line in soup.get_text().splitlines():
