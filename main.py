@@ -399,79 +399,106 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ยิงข้อมูลตรงไปยัง Form Action ของ pingap เพื่อดึง Config และ Address"""
+    """ดึงข้อมูล AP Config และ Address โดยรองรับ Form Reload ของ pingap"""
     try:
-        # 1. กำหนด URL และ Headers จำลอง Browser
-        target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-        
-        headers = {
-            "User-Agent": USER_AGENT,
-            "Referer": target_url,
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            )
+            context = await browser.new_context(user_agent=USER_AGENT)
+            page = await context.new_page()
 
-        # 2. จัดเตรียม Session สำหรับ Login
-        session = requests.Session()
-        
-        # ล็อกอินเข้าสู่ระบบก่อน (ใช้ฟังก์ชันดึง Session/Cookie เดิมของคุณ)
-        # หากมี Cookie จาก Login ให้ใส่ใน session.cookies
-        
-        # 3. ส่ง Parameter IP และ Model ที่ถูกต้องตามที่หน้าเว็บต้องการ
-        # (ส่งทั้ง name="ip" และ name="ip_ap" เพื่อครอบคลุมทุกกรณี)
-        payload = {
-            "ip": req.ip,
-            "ip_ap": req.ip,
-            "model": "Cisco 18XX,28XX,911X",
-            "Model": "Cisco 18XX,28XX,911X",
-            "btnSubmit": "Command",
-            "submit": "Command"
-        }
+            # 1. เข้าหน้าเว็บ AP Config Template
+            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            await login_if_needed(page)
 
-        # 4. ยิง POST Request ส่ง IP AP ไปประมวลผลทันที
-        response = session.post(target_url, data=payload, headers=headers, timeout=15)
-        response.encoding = 'utf-8' # หรือ 'tis-620' / 'windows-874' หากภาษาไทยต่างไป
+            if "wifi/index.asp" not in page.url:
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+            # 2. กรอก IP AP
+            ip_field = page.locator("input[name='ip'], input[name='ip_ap'], input[type='text']").first
+            if await ip_field.count() > 0:
+                await ip_field.fill(req.ip)
 
-        # -------------------------------------------------------------
-        # 5. ดึง ADDRESS (สกัดเฉพาะบรรทัดแรก)
-        # -------------------------------------------------------------
-        site_name = "-"
-        address_text = "-"
+            # 3. เลือก Dropdown Model "Cisco 18XX,28XX,911X"
+            select_field = page.locator("select").first
+            if await select_field.count() > 0:
+                options = await select_field.locator("option").all()
+                for opt in options:
+                    txt = await opt.inner_text()
+                    if "18XX" in txt:
+                        val = await opt.get_attribute("value")
+                        if val is not None:
+                            await select_field.select_option(value=val)
+                        else:
+                            await select_field.select_option(label=txt)
+                        break
 
-        for row in soup.find_all('tr'):
-            row_text = row.get_text(" ", strip=True)
-            if "SITE_NAME" in row_text.upper():
-                cols = row.find_all(['td', 'th'])
-                if len(cols) >= 2:
-                    site_name = cols[1].get_text(strip=True)
+            await asyncio.sleep(0.5)
+
+            # 4. กดปุ่ม Command และรอให้หน้าเว็บ Reload ข้อมูลใหม่
+            cmd_btn = page.locator("input[value='Command'], input[type='submit'], button:has-text('Command')").first
             
-            if "ADDRESS" in row_text.upper():
-                cols = row.find_all(['td', 'th'])
-                if len(cols) >= 2:
-                    raw_addr = cols[1].get_text("\n", strip=True)
-                    lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
-                    if lines:
-                        address_text = lines[0] # ดึงเฉพาะบรรทัดแรกตามต้องการ
+            try:
+                async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
+                    if await cmd_btn.count() > 0:
+                        await cmd_btn.click()
+                    else:
+                        await page.keyboard.press("Enter")
+            except Exception:
+                # กรณีคลิกแล้วไม่ Reload บังคับสั่ง Submit ผ่าน JS
+                await page.evaluate("""() => {
+                    const form = document.querySelector("form");
+                    if (form) form.submit();
+                }""")
+                await asyncio.sleep(3)
 
-        # -------------------------------------------------------------
-        # 6. ดึง CAPWAP Config (กรองเอาบรรทัดขึ้นต้นด้วย capwap ap)
-        # -------------------------------------------------------------
-        capwap_lines = []
-        for line in soup.get_text().splitlines():
-            line_str = line.strip()
-            if line_str.lower().startswith("capwap ap"):
-                capwap_lines.append(line_str)
+            html_content = await page.content()
+            await browser.close()
 
-        capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
+            soup = BeautifulSoup(html_content, 'html.parser')
 
-        return {
-            "status": "success",
-            "ip": req.ip,
-            "site_name": site_name,
-            "address": address_text,
-            "capwap_config": capwap_config
-        }
+            # -------------------------------------------------------------
+            # 5. ดึง ADDRESS & SITE_NAME (สกัดบรรทัดแรก)
+            # -------------------------------------------------------------
+            site_name = "-"
+            address_text = "-"
+
+            for row in soup.find_all('tr'):
+                row_text = row.get_text(" ", strip=True)
+                if "SITE_NAME" in row_text.upper():
+                    cols = row.find_all(['td', 'th'])
+                    if len(cols) >= 2:
+                        site_name = cols[1].get_text(strip=True)
+                
+                if "ADDRESS" in row_text.upper():
+                    cols = row.find_all(['td', 'th'])
+                    if len(cols) >= 2:
+                        raw_addr = cols[1].get_text("\n", strip=True)
+                        lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
+                        if lines:
+                            address_text = lines[0]
+
+            # -------------------------------------------------------------
+            # 6. ดึง CAPWAP Config
+            # -------------------------------------------------------------
+            capwap_lines = []
+            for line in soup.get_text().splitlines():
+                line_str = line.strip()
+                if line_str.lower().startswith("capwap ap"):
+                    capwap_lines.append(line_str)
+
+            capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
+
+            return {
+                "status": "success",
+                "ip": req.ip,
+                "site_name": site_name,
+                "address": address_text,
+                "capwap_config": capwap_config
+            }
 
     except Exception as e:
         print(f"❌ AP Config Exception: {str(e)}")
@@ -479,15 +506,6 @@ async def get_ap_config_api(req: ConfigRequest):
             "status": "error",
             "message": str(e),
             "capwap_config": f"เกิดข้อผิดพลาดในการดึงข้อมูล: {str(e)[:60]}",
-            "address": "-"
-        }
-
-    except Exception as e:
-        print(f"❌ AP Config Exception: {str(e)}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "capwap_config": f"เกิดข้อผิดพลาด: {str(e)[:60]}",
             "address": "-"
         }
 
