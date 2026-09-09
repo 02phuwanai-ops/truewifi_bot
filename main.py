@@ -399,7 +399,7 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ค้นหา #APIP, #Model_AP และ #SubmitButton ภายใน Frame แล้วดึง Config"""
+    """ดึงข้อมูล AP Config พร้อมระบบ Auto-Login เช็ค Session กันหลุด"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -409,59 +409,51 @@ async def get_ap_config_api(req: ConfigRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
-            # 1. เข้าหน้า AP Config Template
+            # 1. ไปหน้า AP Config Template Direct URL
             target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
             await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            
+            # ตรวจสอบว่าติดหน้า Login หรือไม่ ถ้าติดให้ทำการ Login ก่อน
             await login_if_needed(page)
 
+            # ยืนยันอีกครั้งว่าเปิดมาหน้า wifi/index.asp จริงๆ
             if "wifi/index.asp" not in page.url:
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-            await asyncio.sleep(2)
+            # รอให้ Element พร้อมใช้งาน
+            await page.wait_for_selector("#APIP", timeout=15000)
 
-            # 2. วนหา Frame ที่มี element #APIP อยู่จริง
-            target_frame = page
-            for frame in page.frames:
-                if await frame.locator("#APIP").count() > 0:
-                    target_frame = frame
-                    print(f"🎯 Target Frame Found: {frame.url}")
+            # 2. กรอก IP AP ในช่อง #APIP
+            await page.fill("#APIP", req.ip)
+
+            # 3. เลือก Model ใน #Model_AP
+            select_el = page.locator("#Model_AP")
+            options = await select_el.locator("option").all()
+            for opt in options:
+                txt = await opt.inner_text()
+                if "18XX" in txt:
+                    val = await opt.get_attribute("value")
+                    if val is not None:
+                        await select_el.select_option(value=val)
+                    else:
+                        await select_el.select_option(label=txt)
                     break
 
-            # 3. กรอก IP AP ลงใน #APIP
-            ip_input = target_frame.locator("#APIP").first
-            await ip_input.click()
-            await ip_input.fill(req.ip)
-
-            # 4. เลือก Model "Cisco 18XX,28XX,911X" ใน #Model_AP
-            select_el = target_frame.locator("#Model_AP").first
-            if await select_el.count() > 0:
-                options = await select_el.locator("option").all()
-                for opt in options:
-                    txt = await opt.inner_text()
-                    if "18XX" in txt:
-                        val = await opt.get_attribute("value")
-                        if val is not None:
-                            await select_el.select_option(value=val)
-                        else:
-                            await select_el.select_option(label=txt)
-                        break
-
-            # 5. กดปุ่ม #SubmitButton และรอผลลัพธ์
-            submit_btn = target_frame.locator("#SubmitButton").first
+            # 4. กดปุ่ม #SubmitButton และรอการประมวลผล
             try:
                 async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
-                    await submit_btn.click()
+                    await page.click("#SubmitButton")
             except Exception:
-                await submit_btn.click()
+                await page.click("#SubmitButton")
                 await asyncio.sleep(3)
 
-            html_content = await target_frame.content()
+            html_content = await page.content()
             await browser.close()
 
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 6. ดึง ADDRESS & SITE_NAME
+            # 5. ดึง ADDRESS & SITE_NAME
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
@@ -479,10 +471,10 @@ async def get_ap_config_api(req: ConfigRequest):
                         raw_addr = cols[1].get_text("\n", strip=True)
                         lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
                         if lines:
-                            address_text = lines[0] # ดึงบรรทัดแรก
+                            address_text = lines[0] # ตัดเอากรอกสั้นๆ แค่บรรทัดแรก
 
             # -------------------------------------------------------------
-            # 7. ดึง CAPWAP Config
+            # 6. ดึง CAPWAP Config
             # -------------------------------------------------------------
             capwap_lines = []
             for line in soup.get_text().splitlines():
@@ -508,7 +500,7 @@ async def get_ap_config_api(req: ConfigRequest):
             "capwap_config": f"เกิดข้อผิดพลาดในการดึงข้อมูล: {str(e)[:60]}",
             "address": "-"
         }
-
+    
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
     html_content = f"""
