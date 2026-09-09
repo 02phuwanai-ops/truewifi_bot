@@ -15,6 +15,14 @@ from linebot.v3.messaging import (
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from playwright.async_api import async_playwright
 
+import os
+
+# ดึงค่าจาก Environment Variables (ถ้าไม่มีให้ใช้ค่า Default ในเครื่อง)
+PINGAP_BASE_URL = os.getenv("PINGAP_BASE_URL", "https://pingap.truecorp.co.th")
+PINGAP_USERNAME = os.getenv("PINGAP_USERNAME", "your_username_here")
+PINGAP_PASSWORD = os.getenv("PINGAP_PASSWORD", "your_password_here")
+USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
 app = FastAPI()
 
 # =========================================================================
@@ -395,64 +403,50 @@ async def ping_test_api(req: PingRequest):
         print(f"❌ Ping Test Exception: {str(e)}")
         return {"status": "error", "message": f"Ping Error: {str(e)[:50]}", "raw": str(e)}
 
-import requests
+import httpx
+from bs4 import BeautifulSoup
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ส่ง Form POST และสกัดข้อมูลจาก HTML Response โดยตรง"""
+    """ส่ง POST Request ตรงไปยัง pingap โดยไม่ผ่าน Playwright Browser"""
+    target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+    login_url = f"{PINGAP_BASE_URL}/login.asp" # ปรับตาม URL หน้า Loginจริงของระบบ
+    
+    # Headers จำลองเป็น Chrome Browser
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": target_url
+    }
+
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+        # ใช้ AsyncClient เพื่อจัดการ Cookie / Session แบบอัตโนมัติ
+        async with httpx.AsyncClient(verify=False, timeout=15.0, follow_redirects=True) as client:
+            
+            # 1. ทำการ Login เพื่อดึง Session Cookie (ถ้าระบบจำเป็นต้องออธ)
+            # หมายเหตุ: ปรับ field username/password ให้ตรงกับหน้า Login จริง
+            await client.post(
+                login_url,
+                data={"username": PINGAP_USERNAME, "password": PINGAP_PASSWORD}, 
+                headers=headers
             )
-            context = await browser.new_context(user_agent=USER_AGENT)
-            page = await context.new_page()
 
-            # 1. เข้าหน้า AP Config Template และ Login
-            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-            await login_if_needed(page)
+            # 2. ส่ง Form Data แบบ POST ตรงๆ เหมือนที่คุณยิงผ่านหน้าเว็บ
+            payload = {
+                "APIP": req.ip,
+                "Model_AP": "Cisco 18XX,28XX,911X"
+            }
 
-            if "wifi/index.asp" not in page.url:
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            response = await client.post(target_url, data=payload, headers=headers)
+            html_content = response.text
 
-            # 2. กรอก IP และเลือก Model
-            await page.fill("#APIP", req.ip)
-
-            select_el = page.locator("#Model_AP")
-            if await select_el.count() > 0:
-                options = await select_el.locator("option").all()
-                for opt in options:
-                    txt = await opt.inner_text()
-                    if "18XX" in txt:
-                        val = await opt.get_attribute("value")
-                        if val is not None:
-                            await select_el.select_option(value=val)
-                        else:
-                            await select_el.select_option(label=txt)
-                        break
-
-            # 3. กดปุ่ม Submit และรอรับ HTML Response
-            try:
-                async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
-                    await page.click("#SubmitButton")
-            except Exception:
-                await page.click("#SubmitButton")
-                await asyncio.sleep(3)
-
-            html_content = await page.content()
-            await browser.close()
-
-            # -------------------------------------------------------------
-            # 4. สกัดข้อมูลจาก HTML ด้วย BeautifulSoup (ปรับปรุงจุดอ่าน Text)
-            # -------------------------------------------------------------
+            # 3. แกะข้อมูลด้วย BeautifulSoup จาก Response HTML โดยตรง
             soup = BeautifulSoup(html_content, 'html.parser')
 
             site_name = "-"
             address_text = "-"
 
-            # ดึง SITE_NAME และ ADDRESS จาก input / textarea / tr
+            # ดึง SITE_NAME และ ADDRESS
             for row in soup.find_all('tr'):
                 row_text = row.get_text(" ", strip=True)
                 if "SITE_NAME" in row_text.upper():
@@ -466,18 +460,15 @@ async def get_ap_config_api(req: ConfigRequest):
                         raw_addr = txt_area.get_text(strip=True)
                         lines = [l.strip() for l in raw_addr.splitlines() if l.strip()]
                         if lines:
-                            address_text = lines[0] # ดึงเฉพาะบรรทัดแรก
+                            address_text = lines[0]
 
-            # สกัดชุดคำสั่ง CAPWAP Config ทั้งหมดจากตารางด้านล่าง
+            # ดึงคำสั่ง CAPWAP
             capwap_lines = []
-            
-            # วนลูปอ่านทุก Cell (td) ในตาราง
             for td in soup.find_all('td'):
                 td_text = td.get_text("\n", strip=True)
                 if "capwap" in td_text.lower():
                     for line in td_text.splitlines():
                         line_clean = line.strip()
-                        # กรองเอาเฉพาะบรรทัดที่เป็นคำสั่ง capwap จริงๆ
                         if line_clean.lower().startswith("capwap") or "hostname" in line_clean.lower() or "ap-group" in line_clean.lower():
                             capwap_lines.append(line_clean)
 
@@ -492,13 +483,15 @@ async def get_ap_config_api(req: ConfigRequest):
             }
 
     except Exception as e:
-        print(f"❌ AP Config Exception: {str(e)}")
+        print(f"❌ Direct Request Exception: {str(e)}")
         return {
             "status": "error",
             "message": str(e),
             "capwap_config": f"เกิดข้อผิดพลาดในการดึงข้อมูล: {str(e)[:80]}",
             "address": "-"
         }
+
+
     
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
