@@ -86,16 +86,108 @@ AREA_CONFIG = [
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
 async def login_if_needed(page):
-    """ตรวจสอบว่าหน้าปัจจุบันเป็นหน้า Login หรือไม่ หากใช่จะทำการ Login อัตโนมัติ"""
-    if "login" in page.url.lower() or await page.locator("input[name='username']").count() > 0:
-        await page.fill("input[name='username']", PINGAP_USER)
-        await page.fill("input[name='password']", PINGAP_PASS)
-        if await page.locator("select[name='system']").count() > 0:
-            await page.select_option("select[name='system']", "CLLs")
-        
-        await asyncio.sleep(1) # Rate limiting
-        await page.click("input[type='submit']")
-        await page.wait_for_load_state("networkidle")
+    """Login PingAP โดยเลือก HR ตาม Flow จริงของ Browser"""
+
+    try:
+        # ตรวจว่าหน้า Login หรือไม่
+        login_form = page.locator("form[name='first']")
+        login_field = page.locator("input[name='login'], #login")
+        password_field = page.locator("input[name='password'], #password")
+
+        is_login_page = (
+            await login_form.count() > 0
+            or await login_field.count() > 0
+            or await password_field.count() > 0
+            or "login" in (await page.title()).lower()
+        )
+
+        if not is_login_page:
+            print("✅ PingAP session ยัง Login อยู่")
+            return True
+
+        print("🔐 PingAP Login detected")
+
+        # -----------------------------
+        # Username
+        # -----------------------------
+        username = page.locator("input[name='login']")
+        if await username.count() == 0:
+            username = page.locator("#login")
+
+        # -----------------------------
+        # Password
+        # -----------------------------
+        password = page.locator("input[name='password']")
+        if await password.count() == 0:
+            password = page.locator("#password")
+
+        if await username.count() == 0:
+            print("❌ ไม่พบช่อง Username")
+            return False
+
+        if await password.count() == 0:
+            print("❌ ไม่พบช่อง Password")
+            return False
+
+        await username.fill(PINGAP_USER)
+        await password.fill(PINGAP_PASS)
+
+        print("👤 Username/Password filled")
+
+        # -----------------------------
+        # Login ผ่าน HR
+        # loginTrue() จะทำ:
+        # first.SystemLogin.value='HR'
+        # first.submit()
+        # -----------------------------
+        print("👉 กำลังเลือกระบบ HR ผ่าน loginTrue()")
+
+        async with page.expect_navigation(
+            wait_until="domcontentloaded",
+            timeout=20000
+        ):
+            result = await page.evaluate("""
+                () => {
+                    if (typeof loginTrue === "function") {
+                        loginTrue();
+                        return true;
+                    }
+                    return false;
+                }
+            """)
+
+        if not result:
+            print("❌ ไม่พบ function loginTrue()")
+            return False
+
+        print("✅ loginTrue() ถูกเรียกแล้ว")
+
+        await asyncio.sleep(2)
+
+        print(
+            f"🔎 หลัง Login: "
+            f"url={page.url} | "
+            f"title={await page.title()}"
+        )
+
+        # -----------------------------
+        # ตรวจว่ายังอยู่หน้า Login หรือไม่
+        # -----------------------------
+        still_login = (
+            await page.locator("form[name='first']").count() > 0
+            and await page.locator("input[name='password']").count() > 0
+        )
+
+        if still_login:
+            print("❌ Login ไม่สำเร็จ - ยังอยู่หน้า Login")
+            return False
+
+        print("✅ PingAP Login สำเร็จ (HR)")
+        return True
+
+    except Exception as e:
+        print(f"❌ PingAP Login Error: {e}")
+        return False
 
 # --- Pydantic Request Models ---
 class PingRequest(BaseModel):
@@ -399,7 +491,8 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """เข้าตาม Step ผู้ใช้จริง: Login -> กดเมนู -> เจาะ Sub-frame -> กรอก #APIP -> กด #SubmitButton"""
+    """Login -> เปิด AP Config Template โดยตรง -> Submit IP -> อ่าน Response/หน้า HTML"""
+    browser = None
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -409,331 +502,222 @@ async def get_ap_config_api(req: ConfigRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
-            # 1. เข้าหน้าเว็บหลักและทำการ Login
-            await page.goto(PINGAP_BASE_URL, wait_until="domcontentloaded", timeout=30000)
-            await login_if_needed(page)
+            await page.goto(
+                PINGAP_BASE_URL,
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
 
-            # 2. กดปุ่มเมนู "AP Config Template" บนแถบเมนู
-            menu_locator = page.locator("a:has-text('AP Config Template'), td:has-text('AP Config Template')").first
-            if await menu_locator.count() > 0:
-                await menu_locator.click()
-                await page.wait_for_load_state("domcontentloaded")
-            else:
-                target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            print(f"🔐 PingAP Login Check: url={page.url}")
 
-            await asyncio.sleep(2)
+            login_ok = await login_if_needed(page)
 
-            # 3. ค้นหา Frame ที่มีช่อง #APIP
-            #    ต้องกำหนด eval_target ก่อนใช้ในขั้นตอน Submit
+            if not login_ok:
+                print("❌ PingAP Login ไม่สำเร็จ")
+
+                await browser.close()
+                browser = None
+
+                return {
+                    "status": "error",
+                    "ip": req.ip,
+                    "site_name": "-",
+                    "address": "-",
+                    "capwap_config": "PingAP Login ไม่สำเร็จ",
+                    "message": "ไม่สามารถ Login PingAP ด้วยระบบ HR ได้"
+                }
+
+            print("✅ ผ่านขั้นตอน PingAP Login แล้ว")
+
+            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+
+            print(f"🌐 Opening AP Config directly: {target_url}")
+
+            await page.goto(
+                target_url,
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
+
+            # รอให้ form จริงโหลดขึ้นมา ถ้ามีการโหลดช้า
+            try:
+                await page.wait_for_selector("#APIP", state="attached", timeout=15000)
+            except Exception:
+                pass
+
+            print(f"🎯 AP Config Page: url={page.url} | title={await page.title()}")
+            print(f"🔎 APIP count={await page.locator('#APIP').count()} | Form count={await page.locator('#FRM').count()}")
+
+            # 3. ถ้าไม่เจอ #APIP ให้ตรวจทุก frame อีกครั้ง
+            form_target = page
             target_frame = None
-            for frame in page.frames:
+            if await page.locator("#APIP").count() == 0:
+                for frame in page.frames:
+                    try:
+                        if await frame.locator("#APIP").count() > 0:
+                            target_frame = frame
+                            form_target = frame
+                            print(f"🧩 พบ #APIP ใน frame: {frame.url}")
+                            break
+                    except Exception:
+                        continue
+
+            if await form_target.locator("#APIP").count() == 0:
+                # Diagnostic สำคัญ: แสดงข้อความบางส่วนของหน้าที่ Playwright ได้รับ
+                diagnostic = (await page.content())[:2000]
+                print("❌ APIP not found after direct navigation")
+                print(f"📄 HTML length={len(await page.content())}")
+                print(f"📄 HTML preview={diagnostic!r}")
+                await browser.close()
+                browser = None
+                return {
+                    "status": "error",
+                    "ip": req.ip,
+                    "site_name": "-",
+                    "address": "-",
+                    "capwap_config": "ไม่พบฟอร์ม AP Config (#APIP) ใน PingAP",
+                    "message": "AP Config page loaded but #APIP was not found"
+                }
+
+            print(f"🎯 AP Config Form Target: {'frame' if target_frame else 'page'} | url={form_target.url}")
+
+            # 4. กรอก IP และเลือก Cisco 18XX
+            await form_target.locator("#APIP").fill(req.ip)
+
+            model = form_target.locator("#Model_AP")
+            if await model.count() > 0:
                 try:
-                    if await frame.locator("#APIP").count() > 0:
-                        target_frame = frame
-                        print(f"🎯 พบ AP Config Frame: {frame.url}")
-                        break
+                    await model.select_option(label="Cisco 18XX,28XX,911X")
                 except Exception:
-                    continue
+                    # fallback ถ้า label เปลี่ยน
+                    options = await model.locator("option").all_text_contents()
+                    for idx, text in enumerate(options):
+                        if "18XX" in text:
+                            await model.select_option(index=idx)
+                            break
 
-            eval_target = target_frame if target_frame else page
+            # 5. จับ POST จริงของ Form แล้วกด Command
+            response = None
+            html_content = ""
+            try:
+                async with page.expect_response(
+                    lambda r: (
+                        r.request.method.upper() == "POST"
+                        and "/wifi/index.asp" in r.url
+                    ),
+                    timeout=20000
+                ) as response_info:
+                    await form_target.locator("#SubmitButton").click()
 
-            # 4. กรอก IP, เลือก Model และกด Submit ภายใน Frame เป้าหมาย
-            # ใช้ JavaScript ตาม flow เดิม เพื่อไม่กระทบระบบเดิม
-            await eval_target.evaluate(f"""() => {{
-                const ipEl = document.querySelector("#APIP") || document.querySelector("input[type='text']");
-                if (ipEl) {{
-                    ipEl.value = '{req.ip}';
-                    ipEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    ipEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                }}
+                response = await response_info.value
+                print(f"📨 AP Config POST Response: status={response.status} url={response.url}")
+                try:
+                    html_content = await response.text()
+                    print(f"📄 AP Config Response HTML length: {len(html_content)}")
+                except Exception as e:
+                    print(f"⚠️ อ่าน Response HTML ไม่สำเร็จ: {e}")
+            except Exception as e:
+                print(f"⚠️ จับ POST Response ไม่ได้: {e}")
 
-                const selectEl = document.querySelector("#Model_AP") || document.querySelector("select");
-                if (selectEl) {{
-                    for (let i = 0; i < selectEl.options.length; i++) {{
-                        if (selectEl.options[i].text.includes("18XX")) {{
-                            selectEl.selectedIndex = i;
-                            selectEl.options[i].selected = true;
-                            selectEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                            break;
-                        }}
-                    }}
-                }}
-
-                const btn = document.querySelector("#SubmitButton") || document.querySelector("input[type='submit']");
-                if (btn) {{
-                    btn.click();
-                }} else if (ipEl && ipEl.form) {{
-                    ipEl.form.submit();
-                }}
-            }}""")
-
-            # 5. รอให้ระบบประมวลผลและสร้างผลลัพธ์
-            await asyncio.sleep(5)
-
-            # -------------------------------------------------------------
-            # 6. อ่าน HTML หลัง Submit
-            #    สำคัญ: ห้ามปิด browser ก่อนอ่านค่า .value ของ form controls
-            # -------------------------------------------------------------
-            if target_frame:
-                html_content = await target_frame.content()
-            else:
+            # 6. Fallback: หลัง submit หน้าอาจ navigate ไปยัง response แล้ว
+            if not html_content:
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except Exception:
+                    pass
+                await asyncio.sleep(2.0)
                 html_content = await page.content()
+                print(f"📄 AP Config Final Page HTML length: {len(html_content)}")
 
-            soup = BeautifulSoup(html_content, 'html.parser')
-
-            # -------------------------------------------------------------
-            # 7. ดึง SITE_NAME / ADDRESS แบบ Robust
-            #
-            # ปัญหาของวิธีเดิม:
-            #   locator("tr").filter(has_text="ADDRESS")
-            # อาจไม่เจอ ถ้าหน้าเว็บสร้าง/เปลี่ยน DOM หลัง submit
-            #
-            # วิธีนี้จะตรวจทุก frame และตรวจทั้ง input + textarea
-            # โดยดูจาก id/name/label/ข้อความของแถวรอบ element
-            # -------------------------------------------------------------
+            # 7. Parse SITE_NAME / ADDRESS จาก HTML
+            soup = BeautifulSoup(html_content, "html.parser")
             site_name = "-"
             address_text = "-"
 
-            async def scan_frame_controls(frame):
-                try:
-                    return await frame.evaluate("""() => {
-                        const result = [];
+            for row in soup.find_all("tr"):
+                row_text = row.get_text(" ", strip=True)
+                row_upper = row_text.upper()
 
-                        const clean = (v) => String(v || '')
-                            .replace(/\\s+/g, ' ')
-                            .trim();
+                if site_name == "-" and "SITE_NAME" in row_upper:
+                    inp = row.find("input")
+                    if inp and inp.get("value"):
+                        site_name = inp.get("value").strip()
 
-                        const controls = Array.from(
-                            document.querySelectorAll('input, textarea')
-                        );
+                if address_text == "-" and "ADDRESS" in row_upper:
+                    txt = row.find("textarea")
+                    if txt:
+                        address_text = txt.get_text(" ", strip=True)
+                        if not address_text:
+                            address_text = str(txt.get("value", "")).strip()
 
-                        for (const el of controls) {
-                            const value = clean(el.value);
-                            const id = clean(el.id);
-                            const name = clean(el.getAttribute('name'));
-                            const placeholder = clean(el.getAttribute('placeholder'));
-                            const cls = clean(el.className);
-
-                            // หา label/context รอบ element
-                            const row = el.closest('tr');
-                            const parent = row || el.parentElement;
-                            const context = clean(parent ? parent.innerText : '');
-
-                            result.push({
-                                tag: el.tagName.toLowerCase(),
-                                value: value,
-                                id: id,
-                                name: name,
-                                placeholder: placeholder,
-                                className: cls,
-                                context: context
-                            });
-                        }
-
-                        return result;
-                    }""")
-                except Exception as e:
-                    print(f"⚠️ scan frame ไม่สำเร็จ: {e}")
-                    return []
-
-            # รออีกเล็กน้อย เผื่อ JavaScript ฝั่งเว็บเพิ่งเติมค่า
-            await asyncio.sleep(1)
-
-            all_candidates = []
-
-            # page.frames จะรวม main frame และ sub-frame ที่เกิดขึ้นหลัง submit
-            for idx, frame in enumerate(page.frames):
-                try:
-                    candidates = await scan_frame_controls(frame)
-
-                    print(
-                        f"🔎 AP Config Frame {idx}: "
-                        f"url={frame.url} | controls={len(candidates)}"
-                    )
-
-                    for item in candidates:
-                        if item.get("value"):
-                            all_candidates.append({
-                                "frame": idx,
-                                "frame_url": frame.url,
-                                **item
-                            })
-
-                except Exception as e:
-                    print(f"⚠️ อ่าน frame {idx} ไม่สำเร็จ: {e}")
-
-            # Debug เฉพาะ control ที่มีค่า ไม่ dump password/input ว่างทั้งหมด
-            for item in all_candidates:
-                context_upper = item.get("context", "").upper()
-                id_upper = item.get("id", "").upper()
-                name_upper = item.get("name", "").upper()
-
-                if (
-                    "ADDRESS" in context_upper
-                    or "SITE_NAME" in context_upper
-                    or "ADDRESS" in id_upper
-                    or "SITE_NAME" in id_upper
-                    or "ADDRESS" in name_upper
-                    or "SITE_NAME" in name_upper
-                ):
-                    print(
-                        "🧩 AP Config Candidate:",
-                        {
-                            "frame": item.get("frame"),
-                            "tag": item.get("tag"),
-                            "id": item.get("id"),
-                            "name": item.get("name"),
-                            "value": item.get("value"),
-                            "context": item.get("context")[:300]
-                        }
-                    )
-
-            # -------------------------------------------------------------
-            # 7.1 เลือก SITE_NAME
-            # -------------------------------------------------------------
-            for item in all_candidates:
-                id_name = (
-                    f"{item.get('id', '')} "
-                    f"{item.get('name', '')} "
-                    f"{item.get('placeholder', '')}"
-                ).upper()
-                context = item.get("context", "").upper()
-                value = item.get("value", "").strip()
-
-                if not value:
-                    continue
-
-                if "SITE_NAME" in id_name or "SITE_NAME" in context:
-                    site_name = value
-                    break
-
-            # -------------------------------------------------------------
-            # 7.2 เลือก ADDRESS
-            # -------------------------------------------------------------
-            for item in all_candidates:
-                id_name = (
-                    f"{item.get('id', '')} "
-                    f"{item.get('name', '')} "
-                    f"{item.get('placeholder', '')}"
-                ).upper()
-                context = item.get("context", "").upper()
-                value = item.get("value", "").strip()
-
-                if not value:
-                    continue
-
-                if "ADDRESS" in id_name or "ADDRESS" in context:
-                    address_text = value
-                    break
-
-            # -------------------------------------------------------------
-            # 7.3 Fallback: ใช้ selector ตรง ๆ ในทุก frame
-            # -------------------------------------------------------------
-            if address_text == "-":
-                for frame in page.frames:
-                    try:
-                        selectors = [
-                            "textarea[name='ADDRESS']",
-                            "textarea#ADDRESS",
-                            "textarea[id*='ADDRESS' i]",
-                            "textarea[name*='ADDRESS' i]",
-                            "input[name='ADDRESS']",
-                            "input#ADDRESS",
-                            "input[id*='ADDRESS' i]",
-                            "input[name*='ADDRESS' i]",
-                        ]
-
-                        for selector in selectors:
-                            loc = frame.locator(selector).first
-                            if await loc.count() > 0:
-                                try:
-                                    value = (await loc.input_value()).strip()
-                                    if value:
-                                        address_text = value
-                                        print(
-                                            f"✅ ADDRESS พบจาก selector {selector}: "
-                                            f"{address_text}"
-                                        )
-                                        break
-                                except Exception:
-                                    pass
-
-                        if address_text != "-":
+            # fallback selectors
+            if site_name == "-":
+                for inp in soup.find_all("input"):
+                    ident = str(inp.get("id", ""))
+                    name = str(inp.get("name", ""))
+                    if "SITE_NAME" in ident.upper() or "SITE_NAME" in name.upper():
+                        if inp.get("value"):
+                            site_name = inp.get("value").strip()
                             break
 
-                    except Exception as e:
-                        print(f"⚠️ ADDRESS selector fallback error: {e}")
+            if address_text == "-":
+                for txt in soup.find_all("textarea"):
+                    ident = str(txt.get("id", ""))
+                    name = str(txt.get("name", ""))
+                    cls = " ".join(txt.get("class", []))
+                    if (
+                        "ADDRESS" in ident.upper()
+                        or "ADDRESS" in name.upper()
+                        or "RESULTTEXTAREA" in cls.upper()
+                    ):
+                        address_text = txt.get_text(" ", strip=True)
+                        if not address_text:
+                            address_text = str(txt.get("value", "")).strip()
+                        if address_text:
+                            break
 
-            # -------------------------------------------------------------
-            # 7.4 Fallback จาก BeautifulSoup
-            # -------------------------------------------------------------
-            if site_name == "-" or address_text == "-":
-                for row in soup.find_all('tr'):
-                    row_text = row.get_text(" ", strip=True)
-                    row_upper = row_text.upper()
-
-                    if site_name == "-" and "SITE_NAME" in row_upper:
-                        inp = row.find('input')
-                        if inp and inp.get('value'):
-                            site_name = inp.get('value').strip()
-
-                    if address_text == "-" and "ADDRESS" in row_upper:
-                        txt_area = row.find('textarea')
-                        if txt_area:
-                            # textarea.value ไม่อยู่ใน text node
-                            # แต่บางหน้าอาจใส่ค่าไว้ใน text node จึงเก็บไว้เป็น fallback
-                            value = txt_area.get('value')
-                            if value:
-                                address_text = value.strip()
-                            else:
-                                address_text = txt_area.get_text(" ", strip=True)
-
-            # จัดรูปแบบข้อความให้อ่านง่าย
+            # เอาเฉพาะข้อความก่อน @ ตามที่ต้องการ
             if address_text and address_text != "-":
                 address_text = re.sub(r"\s+", " ", address_text).strip()
-
-                # ถ้ามี metadata ต่อท้ายด้วย @ ให้เอาออกตาม logic เดิม
                 if "@" in address_text:
                     address_text = address_text.split("@", 1)[0].strip()
 
-            print(
-                f"📍 AP Config RESULT | "
-                f"SITE_NAME={site_name} | ADDRESS={address_text}"
-            )
+            print(f"📍 AP Config RESULT | SITE_NAME={site_name} | ADDRESS={address_text}")
 
-            # อ่านเสร็จแล้วค่อยปิด browser
-            await browser.close()
-
-            # -------------------------------------------------------------
-            # 8. ดึงข้อความ CAPWAP Config
-            # -------------------------------------------------------------
+            # CAPWAP เดิม
             capwap_lines = []
             for line in soup.get_text().splitlines():
                 line_str = line.strip()
                 if "capwap" in line_str.lower():
                     capwap_lines.append(line_str)
-
             capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
 
+            await browser.close()
+            browser = None
+
             return {
-                "status": "success",
+                "status": "success" if address_text != "-" else "error",
                 "ip": req.ip,
                 "site_name": site_name,
                 "address": address_text,
-                "capwap_config": address_text if address_text != "-" else capwap_config
+                "capwap_config": address_text if address_text != "-" else capwap_config,
+                "message": "OK" if address_text != "-" else "ไม่พบ ADDRESS ในผลลัพธ์ PingAP"
             }
-
 
     except Exception as e:
         print(f"❌ AP Config Exception: {str(e)}")
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
         return {
             "status": "error",
             "message": str(e),
             "capwap_config": f"เกิดข้อผิดพลาดในการดึงข้อมูล: {str(e)[:80]}",
             "address": "-"
         }
-    
+
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
     html_content = f"""
@@ -1155,4 +1139,4 @@ def liff_page():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
