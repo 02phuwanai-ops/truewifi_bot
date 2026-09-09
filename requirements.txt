@@ -5,5 +5,3 @@ openpyxl
 beautifulsoup4
 line-bot-sdk
 playwright
-beautifulsoup4
-httpx

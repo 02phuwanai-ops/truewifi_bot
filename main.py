@@ -15,14 +15,6 @@ from linebot.v3.messaging import (
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from playwright.async_api import async_playwright
 
-import os
-
-# ดึงค่าจาก Environment Variables (ถ้าไม่มีให้ใช้ค่า Default ในเครื่อง)
-PINGAP_BASE_URL = os.getenv("PINGAP_BASE_URL", "https://pingap.truecorp.co.th")
-PINGAP_USERNAME = os.getenv("PINGAP_USERNAME", "your_username_here")
-PINGAP_PASSWORD = os.getenv("PINGAP_PASSWORD", "your_password_here")
-USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-
 app = FastAPI()
 
 # =========================================================================
@@ -403,74 +395,119 @@ async def ping_test_api(req: PingRequest):
         print(f"❌ Ping Test Exception: {str(e)}")
         return {"status": "error", "message": f"Ping Error: {str(e)[:50]}", "raw": str(e)}
 
-import httpx
-from bs4 import BeautifulSoup
+import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ส่ง POST Request ตรงไปยัง pingap โดยไม่ผ่าน Playwright Browser"""
-    target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-    login_url = f"{PINGAP_BASE_URL}/login.asp" # ปรับตาม URL หน้า Loginจริงของระบบ
-    
-    # Headers จำลองเป็น Chrome Browser
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Referer": target_url
-    }
-
+    """เข้าตาม Step ผู้ใช้จริง: Login -> กดเมนู -> เจาะ Sub-frame -> กรอก #APIP -> กด #SubmitButton"""
     try:
-        # ใช้ AsyncClient เพื่อจัดการ Cookie / Session แบบอัตโนมัติ
-        async with httpx.AsyncClient(verify=False, timeout=15.0, follow_redirects=True) as client:
-            
-            # 1. ทำการ Login เพื่อดึง Session Cookie (ถ้าระบบจำเป็นต้องออธ)
-            # หมายเหตุ: ปรับ field username/password ให้ตรงกับหน้า Login จริง
-            await client.post(
-                login_url,
-                data={"username": PINGAP_USERNAME, "password": PINGAP_PASSWORD}, 
-                headers=headers
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
             )
+            context = await browser.new_context(user_agent=USER_AGENT)
+            page = await context.new_page()
 
-            # 2. ส่ง Form Data แบบ POST ตรงๆ เหมือนที่คุณยิงผ่านหน้าเว็บ
-            payload = {
-                "APIP": req.ip,
-                "Model_AP": "Cisco 18XX,28XX,911X"
-            }
+            # 1. เข้าหน้าเว็บหลักและทำการ Login
+            await page.goto(PINGAP_BASE_URL, wait_until="domcontentloaded", timeout=30000)
+            await login_if_needed(page)
 
-            response = await client.post(target_url, data=payload, headers=headers)
-            html_content = response.text
+            # 2. กดปุ่มเมนู "AP Config Template" บนแถบเมนู
+            menu_locator = page.locator("a:has-text('AP Config Template'), td:has-text('AP Config Template')").first
+            if await menu_locator.count() > 0:
+                await menu_locator.click()
+                await page.wait_for_load_state("domcontentloaded")
+            else:
+                target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-            # 3. แกะข้อมูลด้วย BeautifulSoup จาก Response HTML โดยตรง
+            await asyncio.sleep(2)
+
+            # 3. ค้นหา Frame / Sub-frame ที่เป็นตัวเก็บช่อง #APIP
+            target_frame = None
+            for frame in page.frames:
+                try:
+                    if await frame.locator("#APIP").count() > 0:
+                        target_frame = frame
+                        break
+                except Exception:
+                    continue
+
+            # ถ้าหาใน sub-frame ไม่เจอ ให้ใช้หน้าหลัก (page) เป็นหลัก
+            eval_target = target_frame if target_frame else page
+
+            # 4. กรอก IP, เลือก Model และกด Submit ภายใน Frame เป้าหมาย
+            await eval_target.evaluate(f"""() => {{
+                const ipEl = document.querySelector("#APIP") || document.querySelector("input[type='text']");
+                if (ipEl) {{
+                    ipEl.value = '{req.ip}';
+                    ipEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    ipEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+
+                const selectEl = document.querySelector("#Model_AP") || document.querySelector("select");
+                if (selectEl) {{
+                    for (let i = 0; i < selectEl.options.length; i++) {{
+                        if (selectEl.options[i].text.includes("18XX")) {{
+                            selectEl.selectedIndex = i;
+                            selectEl.options[i].selected = true;
+                            selectEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            break;
+                        }}
+                    }}
+                }}
+
+                const btn = document.querySelector("#SubmitButton") || document.querySelector("input[type='submit']");
+                if (btn) {{
+                    btn.click();
+                }} else if (ipEl && ipEl.form) {{
+                    ipEl.form.submit();
+                }}
+            }}""")
+
+            # 5. รอ 3.5 วินาที ให้ตารางและคำสั่ง CAPWAP Render บนหน้าจอ
+            await asyncio.sleep(3.5)
+
+            # 6. ดึง HTML Content ออกมาอ่านข้อความ
+            if target_frame:
+                html_content = await target_frame.content()
+            else:
+                html_content = await page.content()
+
+            await browser.close()
+
             soup = BeautifulSoup(html_content, 'html.parser')
 
+            # -------------------------------------------------------------
+            # 7. ดึง SITE_NAME & ADDRESS (แก้ไขใหม่ให้ดึงจาก textarea และ input โดยตรง)
+            # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
 
-            # ดึง SITE_NAME และ ADDRESS
             for row in soup.find_all('tr'):
-                row_text = row.get_text(" ", strip=True)
-                if "SITE_NAME" in row_text.upper():
+                text = row.get_text(" ", strip=True).upper()
+
+                # ดึง SITE_NAME จาก input value
+                if "SITE_NAME" in text:
                     inp = row.find('input')
                     if inp and inp.get('value'):
                         site_name = inp.get('value').strip()
-                
-                if "ADDRESS" in row_text.upper():
+
+                # ดึง ADDRESS จาก textarea
+                if "ADDRESS" in text:
                     txt_area = row.find('textarea')
                     if txt_area:
-                        raw_addr = txt_area.get_text(strip=True)
-                        lines = [l.strip() for l in raw_addr.splitlines() if l.strip()]
-                        if lines:
-                            address_text = lines[0]
+                        address_text = txt_area.get_text(strip=True)
 
-            # ดึงคำสั่ง CAPWAP
+            # -------------------------------------------------------------
+            # 8. ดึงข้อความ CAPWAP Config
+            # -------------------------------------------------------------
             capwap_lines = []
-            for td in soup.find_all('td'):
-                td_text = td.get_text("\n", strip=True)
-                if "capwap" in td_text.lower():
-                    for line in td_text.splitlines():
-                        line_clean = line.strip()
-                        if line_clean.lower().startswith("capwap") or "hostname" in line_clean.lower() or "ap-group" in line_clean.lower():
-                            capwap_lines.append(line_clean)
+            for line in soup.get_text().splitlines():
+                line_str = line.strip()
+                if "capwap" in line_str.lower():
+                    capwap_lines.append(line_str)
 
             capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
 
@@ -479,19 +516,17 @@ async def get_ap_config_api(req: ConfigRequest):
                 "ip": req.ip,
                 "site_name": site_name,
                 "address": address_text,
-                "capwap_config": capwap_config
+                "capwap_config": address_text if address_text != "-" else capwap_config
             }
 
     except Exception as e:
-        print(f"❌ Direct Request Exception: {str(e)}")
+        print(f"❌ AP Config Exception: {str(e)}")
         return {
             "status": "error",
             "message": str(e),
             "capwap_config": f"เกิดข้อผิดพลาดในการดึงข้อมูล: {str(e)[:80]}",
             "address": "-"
         }
-
-
     
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
