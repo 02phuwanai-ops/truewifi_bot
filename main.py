@@ -466,12 +466,19 @@ async def get_ap_config_api(req: ConfigRequest):
                 }}
             }}""")
 
-            # 5. รอ 3.5 วินาที ให้ตารางและคำสั่ง CAPWAP Render บนหน้าจอ
-            await asyncio.sleep(3.5)
+            # 5. รอให้หน้าเว็บประมวลผลและโหลดผลลัพธ์ (เพิ่มเวลาและรอ network idle)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            await asyncio.sleep(4)
 
-            # 6. ดึง HTML Content ออกมาอ่านข้อความ
+            # 6. ดึง HTML Content ล่าสุดหลังจากกด Submit แล้ว
             if target_frame:
-                html_content = await target_frame.content()
+                try:
+                    html_content = await target_frame.content()
+                except Exception:
+                    html_content = await page.content()
             else:
                 html_content = await page.content()
 
@@ -479,44 +486,47 @@ async def get_ap_config_api(req: ConfigRequest):
 
             soup = BeautifulSoup(html_content, 'html.parser')
 
-            # -------------------------------------------------------------
-            # 7. ดึง SITE_NAME & ADDRESS (แก้ไขใหม่ให้ดึงจาก textarea และ input โดยตรง)
-            # -------------------------------------------------------------
+            # 7. ดึง SITE_NAME & ADDRESS
             site_name = "-"
             address_text = "-"
 
             for row in soup.find_all('tr'):
                 text = row.get_text(" ", strip=True).upper()
 
-                # ดึง SITE_NAME จาก input value
                 if "SITE_NAME" in text:
                     inp = row.find('input')
                     if inp and inp.get('value'):
                         site_name = inp.get('value').strip()
 
-                # ดึง ADDRESS จาก textarea
                 if "ADDRESS" in text:
                     txt_area = row.find('textarea')
                     if txt_area:
                         address_text = txt_area.get_text(strip=True)
 
-            # -------------------------------------------------------------
-            # 8. ดึงข้อความ CAPWAP Config
-            # -------------------------------------------------------------
+            # 8. ดึงข้อความ CAPWAP Config (ปรับให้กวาดหาคำว่า capwap หรือดึงจากตารางผลลัพธ์ทั้งหมดถ้าไม่เจอตรงๆ)
             capwap_lines = []
-            for line in soup.get_text().splitlines():
-                line_str = line.strip()
-                if "capwap" in line_str.lower():
-                    capwap_lines.append(line_str)
+            
+            # ค้นหาจากทุก tag ที่มีความเป็นไปได้ หรือดึงข้อความจาก pre/code/td ที่แสดงผลลัพธ์
+            for element in soup.find_all(['pre', 'code', 'td', 'span', 'div']):
+                el_text = element.get_text(strip=True)
+                if "capwap" in el_text.lower():
+                    capwap_lines.append(el_text)
 
-            capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
+            # ถ้ายังไม่เจอ ลองดึงบรรทัดที่มีคีย์เวิร์ดสำรอง หรือดึง text ทั้งหมดที่เกี่ยวกับ config มาแสดง
+            if not capwap_lines:
+                for line in soup.get_text().splitlines():
+                    line_str = line.strip()
+                    if line_str and any(k in line_str.lower() for k in ["capwap", "wtp", "ac-ip", "controller"]):
+                        capwap_lines.append(line_str)
+
+            capwap_config = "\n".join(list(set(capwap_lines))) if capwap_lines else "ไม่พบ Config CAPWAP"
 
             return {
                 "status": "success",
                 "ip": req.ip,
                 "site_name": site_name,
                 "address": address_text,
-                "capwap_config": address_text if address_text != "-" else capwap_config
+                "capwap_config": capwap_config
             }
 
     except Exception as e:
