@@ -355,33 +355,33 @@ def get_pending_data_api():
 @app.post("/api/ping_test")
 async def ping_test_api(req: PingRequest):
     """ยิง Ping Test ผ่าน Playwright Browser"""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent=USER_AGENT)
-        page = await context.new_page()
+    try:
+        async with async_playwright() as p:
+            # เพิ่ม launch args เพื่อรันในสภาพแวดล้อม Docker/Linux Container
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            )
+            context = await browser.new_context(user_agent=USER_AGENT)
+            page = await context.new_page()
 
-        try:
             target_url = f"{PINGAP_BASE_URL}/test"
-            await page.goto(target_url, wait_until="networkidle")
+            await page.goto(target_url, wait_until="networkidle", timeout=30000)
             
-            # ตรวจสอบว่าต้อง Login หรือไม่
             await login_if_needed(page)
 
-            # กรอก Form
             if await page.locator("input[name='emp_id']").count() > 0:
                 await page.fill("input[name='emp_id']", req.emp_id)
             if await page.locator("input[name='ip']").count() > 0:
                 await page.fill("input[name='ip']", req.ip)
 
-            await asyncio.sleep(2) # Rate limiting
+            await asyncio.sleep(1)
 
-            # กด Submit
             if await page.locator("input[type='submit']").count() > 0:
                 await page.click("input[type='submit']")
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_load_state("networkidle", timeout=30000)
 
             page_content = (await page.content()).lower()
-
             await browser.close()
 
             if any(k in page_content for k in ["ping ok", "reply from", "bytes="]):
@@ -391,64 +391,53 @@ async def ping_test_api(req: PingRequest):
             else:
                 return {"status": "success", "message": "Ping Completed", "raw": page_content[:300]}
 
-        except Exception as e:
-            await browser.close()
-            return {"status": "error", "message": f"Connection Error: {str(e)}", "raw": str(e)}
+    except Exception as e:
+        print(f"❌ Ping Test Exception: {str(e)}")
+        return {"status": "error", "message": f"Ping Error: {str(e)[:50]}", "raw": str(e)}
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ดึง AP Config Template ผ่าน Playwright Browser"""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent=USER_AGENT)
-        page = await context.new_page()
+    """ดึง AP Config และ ADDRESS ตามรูปแบบที่กำหนด"""
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            )
+            context = await browser.new_context(user_agent=USER_AGENT)
+            page = await context.new_page()
 
-        target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-
-        try:
-            await page.goto(target_url, wait_until="networkidle")
-            
-            # ตรวจสอบว่าต้อง Login หรือไม่
+            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+            await page.goto(target_url, wait_until="networkidle", timeout=30000)
             await login_if_needed(page)
 
-            # หากโดน Redirect หลังจาก Login ให้เปิดหน้า Target URL อีกครั้ง
             if "wifi/index.asp" not in page.url:
-                await page.goto(target_url, wait_until="networkidle")
+                await page.goto(target_url, wait_until="networkidle", timeout=30000)
 
-            # กรอก IP Address ลงในช่อง ค้นหา/ยิง Request
+            # ใส่ IP AP แล้วกดค้นหา
             if await page.locator("input[name='ip']").count() > 0:
                 await page.fill("input[name='ip']", req.ip)
             elif await page.locator("input[name='ip_ap']").count() > 0:
                 await page.fill("input[name='ip_ap']", req.ip)
 
-            await asyncio.sleep(2) # Rate limiting
+            await asyncio.sleep(1)
 
-            # กดปุ่ม Command / Submit
             if await page.locator("input[name='btnSubmit']").count() > 0:
                 await page.click("input[name='btnSubmit']")
             elif await page.locator("input[type='submit']").count() > 0:
                 await page.click("input[type='submit']")
 
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_load_state("networkidle", timeout=30000)
             html_content = await page.content()
-
             await browser.close()
 
-            # --- Parse ข้อมูล HTML ด้วย BeautifulSoup ---
             soup = BeautifulSoup(html_content, 'html.parser')
 
-            # 1. แกะ Config CAPWAP
-            capwap_lines = []
-            for line in soup.get_text().splitlines():
-                line_str = line.strip()
-                if line_str and any(k in line_str.lower() for k in ['capwap', 'ap name', 'controller', 'ip name', 'cisco']):
-                    capwap_lines.append(line_str)
-
-            capwap_config = "\n".join(capwap_lines) if capwap_lines else ""
-
-            # 2. แกะ Site Name และ Address
-            site_name = ""
-            address = ""
+            # -------------------------------------------------------------
+            # 1. จัดการส่วน ADDRESS (ตัดเอากรอกสั้นๆ แค่บรรทัดแรก)
+            # -------------------------------------------------------------
+            address_text = "-"
+            site_name = "-"
 
             for row in soup.find_all('tr'):
                 row_text = row.get_text(strip=True)
@@ -456,36 +445,45 @@ async def get_ap_config_api(req: ConfigRequest):
                     cols = row.find_all(['td', 'th'])
                     if len(cols) >= 2:
                         site_name = cols[1].get_text(strip=True)
-                    else:
-                        site_name = row_text.replace("SITE_NAME", "").strip(" :")
-                        
+                
                 if "ADDRESS" in row_text.upper():
                     cols = row.find_all(['td', 'th'])
                     if len(cols) >= 2:
-                        address = cols[1].get_text(strip=True)
-                    else:
-                        address = row_text.replace("ADDRESS", "").strip(" :")
+                        raw_addr = cols[1].get_text("\n", strip=True)
+                        # เอาเฉพาะบรรทัดแรกที่ระบุตำแหน่ง (เช่น CFEV-FL01-AP41-P ... อยู่ใน FOOD HALL)
+                        lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
+                        if lines:
+                            address_text = lines[0]
 
-            if not capwap_config and not site_name:
-                if len(html_content) > 100:
-                    capwap_config = "⚠️ ดึงข้อมูลสำเร็จ แต่ไม่พบบรรทัด 'capwap'\nตรวจสอบข้อมูลดิบชั่วคราว:\n" + soup.get_text()[:500]
+            # -------------------------------------------------------------
+            # 2. จัดการส่วน CAPWAP Config (ดึงเฉพาะ บรรทัดขึ้นต้นด้วย capwap ap)
+            # -------------------------------------------------------------
+            capwap_lines = []
+            for line in soup.get_text().splitlines():
+                line_str = line.strip()
+                # กรองเอาเฉพาะบรรทัดที่ขึ้นต้นด้วย 'capwap ap'
+                if line_str.lower().startswith("capwap ap"):
+                    capwap_lines.append(line_str)
+
+            # นำคำสั่งมารวมกันโดยเว้นบรรทัด
+            capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
 
             return {
                 "status": "success",
                 "ip": req.ip,
-                "site_name": site_name if site_name else "-",
-                "address": address if address else "-",
-                "capwap_config": capwap_config if capwap_config else "ไม่พบ Config CAPWAP"
+                "site_name": site_name,
+                "address": address_text,
+                "capwap_config": capwap_config
             }
 
-        except Exception as e:
-            await browser.close()
-            return {
-                "status": "error",
-                "message": str(e),
-                "capwap_config": "เกิดข้อผิดพลาดในการดึง Config",
-                "address": "ไม่สามารถดึงข้อมูลสถานที่ได้"
-            }
+    except Exception as e:
+        print(f"❌ AP Config Exception: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "capwap_config": f"เกิดข้อผิดพลาด: {str(e)[:60]}",
+            "address": "ไม่สามารถดึงข้อมูลสถานที่ได้"
+        }
 
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
