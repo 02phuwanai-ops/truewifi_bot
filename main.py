@@ -399,7 +399,7 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ดึงข้อมูล AP Config และ Address โดยรองรับ Form Reload ของ pingap"""
+    """ดึงข้อมูล AP Config แบบอัปเดตตาม Text บนหน้าเว็บโดยไม่กด Submit"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -409,7 +409,7 @@ async def get_ap_config_api(req: ConfigRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
-            # 1. เข้าหน้าเว็บ AP Config Template
+            # 1. เข้าหน้า AP Config Template
             target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
             await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
             await login_if_needed(page)
@@ -417,10 +417,13 @@ async def get_ap_config_api(req: ConfigRequest):
             if "wifi/index.asp" not in page.url:
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-            # 2. กรอก IP AP
+            # 2. กรอก IP AP และพิมพ์เลียนแบบคน (Type) เพื่อให้ Event ทำงาน
             ip_field = page.locator("input[name='ip'], input[name='ip_ap'], input[type='text']").first
             if await ip_field.count() > 0:
-                await ip_field.fill(req.ip)
+                await ip_field.click()
+                await ip_field.fill("") # ล้างค่าเก่า
+                await ip_field.type(req.ip, delay=50) # พิมพ์ทีละตัวอักษรเพื่อส่ง Event
+                await ip_field.press("Tab") # ย้ายโฟกัสออก (trigger blur event)
 
             # 3. เลือก Dropdown Model "Cisco 18XX,28XX,911X"
             select_field = page.locator("select").first
@@ -436,24 +439,18 @@ async def get_ap_config_api(req: ConfigRequest):
                             await select_field.select_option(label=txt)
                         break
 
-            await asyncio.sleep(0.5)
+            # 4. ส่ง JS Dispatch Events บังคับให้สคริปต์หน้าเว็บคำนวณ Text ทันที
+            await page.evaluate("""() => {
+                const inputs = document.querySelectorAll("input, select");
+                inputs.forEach(el => {
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('blur', { bubbles: true }));
+                });
+            }""")
 
-            # 4. กดปุ่ม Command และรอให้หน้าเว็บ Reload ข้อมูลใหม่
-            cmd_btn = page.locator("input[value='Command'], input[type='submit'], button:has-text('Command')").first
-            
-            try:
-                async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
-                    if await cmd_btn.count() > 0:
-                        await cmd_btn.click()
-                    else:
-                        await page.keyboard.press("Enter")
-            except Exception:
-                # กรณีคลิกแล้วไม่ Reload บังคับสั่ง Submit ผ่าน JS
-                await page.evaluate("""() => {
-                    const form = document.querySelector("form");
-                    if (form) form.submit();
-                }""")
-                await asyncio.sleep(3)
+            # 5. รอให้ JavaScript บนหน้าเว็บประมวลผลข้อความและ Render ออกมา (รอ 3 วินาที)
+            await asyncio.sleep(3)
 
             html_content = await page.content()
             await browser.close()
@@ -461,7 +458,7 @@ async def get_ap_config_api(req: ConfigRequest):
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 5. ดึง ADDRESS & SITE_NAME (สกัดบรรทัดแรก)
+            # 6. ดึง ADDRESS & SITE_NAME
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
@@ -479,15 +476,15 @@ async def get_ap_config_api(req: ConfigRequest):
                         raw_addr = cols[1].get_text("\n", strip=True)
                         lines = [line.strip() for line in raw_addr.splitlines() if line.strip()]
                         if lines:
-                            address_text = lines[0]
+                            address_text = lines[0] # ตัดเอากรอกสั้นๆ แค่บรรทัดแรก
 
             # -------------------------------------------------------------
-            # 6. ดึง CAPWAP Config
+            # 7. ดึง CAPWAP Config (ดึงทุกบรรทัดที่มี capwap)
             # -------------------------------------------------------------
             capwap_lines = []
             for line in soup.get_text().splitlines():
                 line_str = line.strip()
-                if line_str.lower().startswith("capwap ap"):
+                if "capwap" in line_str.lower():
                     capwap_lines.append(line_str)
 
             capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
