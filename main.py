@@ -45,17 +45,17 @@ ALLOWED_BCODES = ['B104', 'B111', 'B112', 'B113']
 AREA_CONFIG = [
     {
         "id": "area1", 
-        "name": "1. พระโขนง (B113)", 
+        "name": "1. พระโขนง", 
         "keywords": ['B113', 'พระโขนง', 'บางจาก', 'True Digital Park']
     },
     {
         "id": "area2", 
-        "name": "2. คลองเตย (B113)", 
+        "name": "2. คลองเตย", 
         "keywords": ['คลองเตย', 'กล้วยน้ำไท']
     },
     {
         "id": "area3", 
-        "name": "3. วัฒนา (B112)", 
+        "name": "3. วัฒนา", 
         "keywords": ['B112', 'วัฒนา', 'คลองตันเหนือ', 'Samitivej', 'Terminal 21']
     },
     {
@@ -72,7 +72,7 @@ AREA_CONFIG = [
     },
     {
         "id": "area5", 
-        "name": "5. ลาดพร้าว (B111)", 
+        "name": "5. ลาดพร้าว", 
         "keywords": ['B111', 'ลาดพร้าว', 'จรเข้บัว', 'Eastville', 'สตรีวิทยา 2']
     },
     {
@@ -399,7 +399,7 @@ import requests
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """ค้นหา Input ในทุก Frame ของหน้าเว็บ และอ่าน Text ออกมาสกัด Config"""
+    """ดึงข้อมูล AP Config และ Address โดยสั่งผ่าน ID `#APIP`, `#Model_AP` และ `#SubmitButton`"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -411,67 +411,44 @@ async def get_ap_config_api(req: ConfigRequest):
 
             # 1. เข้าหน้า AP Config Template
             target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(target_url, wait_until="networkidle", timeout=30000)
             await login_if_needed(page)
 
-            # เช็คถ้ายังติดหน้า Login ให้ลอง Login ซ้ำ
             if "wifi/index.asp" not in page.url:
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(target_url, wait_until="networkidle", timeout=30000)
 
-            await asyncio.sleep(2)
+            # 2. กรอก IP AP ในช่อง #APIP
+            await page.fill("#APIP", req.ip)
 
-            # 2. ค้นหา Frame ที่มี Form อยู่จริง (รองรับทั้ง Main Frame และ iframe)
-            target_frame = page
-            for frame in page.frames:
-                if await frame.locator("input[type='text'], select").count() > 0:
-                    target_frame = frame
-                    print(f"🎯 Found target form inside Frame: {frame.url}")
+            # 3. เลือก Model ใน #Model_AP
+            select_el = page.locator("#Model_AP")
+            options = await select_el.locator("option").all()
+            for opt in options:
+                txt = await opt.inner_text()
+                if "18XX" in txt:
+                    val = await opt.get_attribute("value")
+                    if val is not None:
+                        await select_el.select_option(value=val)
+                    else:
+                        await select_el.select_option(label=txt)
                     break
 
-            # 3. กรอก IP AP ลงใน Field
-            ip_input = target_frame.locator("input[type='text'], input[name='ip'], input[name='ip_ap']").first
-            if await ip_input.count() > 0:
-                await ip_input.click()
-                await ip_input.fill(req.ip)
-                await ip_input.dispatchEvent("input")
-                await ip_input.dispatchEvent("change")
-                await ip_input.dispatchEvent("blur")
+            # 4. กดปุ่ม #SubmitButton และรอให้หน้าเว็บ Reload / Render ข้อมูลใหม่
+            try:
+                async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
+                    await page.click("#SubmitButton")
+            except Exception:
+                # กรณีเป็น AJAX หรือกดแล้วไม่ Reload หน้า ให้คลิกแล้วรอ 3 วินาทีแทน
+                await page.click("#SubmitButton")
+                await asyncio.sleep(3)
 
-            # 4. เลือก Model "Cisco 18XX,28XX,911X"
-            model_select = target_frame.locator("select").first
-            if await model_select.count() > 0:
-                options = await model_select.locator("option").all()
-                for opt in options:
-                    txt = await opt.inner_text()
-                    if "18XX" in txt:
-                        val = await opt.get_attribute("value")
-                        if val is not None:
-                            await model_select.select_option(value=val)
-                        else:
-                            await model_select.select_option(label=txt)
-                        await model_select.dispatchEvent("change")
-                        break
-
-            # 5. สั่งสะกิด Event ทั่วทั้งหน้าเพื่อกระตุ้นให้ JS ประมวลผล
-            await target_frame.evaluate("""() => {
-                const elements = document.querySelectorAll("input, select");
-                elements.forEach(el => {
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    el.dispatchEvent(new Event('keyup', { bubbles: true }));
-                });
-            }""")
-
-            # 6. รอ 3 วินาทีให้ตารางและ Text โหลดออกมา
-            await asyncio.sleep(3)
-
-            # ดึง HTML จาก Frame ที่พบข้อมูล
-            html_content = await target_frame.content()
+            html_content = await page.content()
             await browser.close()
 
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # -------------------------------------------------------------
-            # 7. ดึง ADDRESS & SITE_NAME
+            # 5. ดึง ADDRESS & SITE_NAME
             # -------------------------------------------------------------
             site_name = "-"
             address_text = "-"
@@ -492,7 +469,7 @@ async def get_ap_config_api(req: ConfigRequest):
                             address_text = lines[0] # ตัดเอากรอกสั้นๆ แค่บรรทัดแรก
 
             # -------------------------------------------------------------
-            # 8. ดึง CAPWAP Config
+            # 6. ดึง CAPWAP Config
             # -------------------------------------------------------------
             capwap_lines = []
             for line in soup.get_text().splitlines():
