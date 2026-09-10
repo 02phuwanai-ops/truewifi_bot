@@ -758,7 +758,7 @@ def liff_page():
             .card {{ width: 100%; background-color: #1C1C1E; border-radius: 8px; padding: 10px; margin-bottom: 8px; border: 1px solid #2A2A2D; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }}
             
             .card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; }}
-            .ticket-badge {{ font-family: monospace, sans-serif; font-size: 14px; font-weight: bold; color: #FFD700; word-break: break-all; }}
+            .ticket-badge {{ font-family: monospace, sans-serif; font-size: 15px; font-weight: bold; color: #FFD700; word-break: break-all; }}
             .type-badge {{ font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; flex-shrink: 0; }}
             .badge-wifi {{ background-color: rgba(255, 215, 0, 0.15); color: #FFD700; border: 1px solid #FFD700; }}
             .badge-femto {{ background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid #00E676; }}
@@ -766,15 +766,15 @@ def liff_page():
             .clickable {{ cursor: pointer; transition: opacity 0.2s; }}
             .clickable:active {{ opacity: 0.6; }}
 
-            .subject-box {{ background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 12px; color: #E2E2E2; margin-bottom: 8px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }}
+            .subject-box {{ background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #E2E2E2; margin-bottom: 8px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }}
             .subject-label {{ color: #888; font-size: 10px; font-weight: bold; display: block; margin-bottom: 2px; }}
 
-            .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; background-color: #141416; padding: 8px 10px; border-radius: 6px; }}
+            .grid-container {{ display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; margin-bottom: 8px; background-color: #141416; padding: 8px 12px; border-radius: 6px; }}
             
             .grid-item {{ display: flex; flex-direction: column; overflow: hidden; }}
             .item-label {{ font-size: 10px; color: #888; margin-bottom: 2px; text-transform: uppercase; }}
             .item-val {{ font-size: 12px; color: #FFF; font-weight: 500; word-break: break-all; }}
-            .item-val.ip {{ font-family: monospace, sans-serif; color: #64B5F6; font-weight: bold; }}
+            .item-val.ip {{ font-family: monospace, sans-serif; color: #64B5F6; font-weight: bold; font-size: 13.5px; }}
             .item-val.status {{ color: #00E676; font-weight: bold; }}
             .item-val.severity {{ color: #FF5252; font-weight: bold; }}
 
@@ -791,22 +791,27 @@ def liff_page():
             .ping-ok {{ background-color: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }}
             .ping-fail {{ background-color: rgba(255, 82, 82, 0.2); color: #FF5252; border: 1px solid #FF5252; }}
 
-            .config-box {{ display: none; background-color: #0D1117; border: 1px solid #30363D; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-family: monospace; font-size: 11px; }}
+            .config-box {{ display: none; background-color: #0D1117; border: 1px solid #30363D; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-family: monospace; }}
             .config-box.open {{ display: block; }}
-            .config-title {{ color: #FF9100; font-weight: bold; font-size: 11px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }}
-            .config-location {{ color: #8B949E; font-size: 10.5px; margin-bottom: 6px; line-height: 1.3; background-color: #161B22; padding: 6px; border-radius: 4px; border-left: 2px solid #FF9100; }}
-            .config-text {{ background-color: #161B22; color: #58A6FF; padding: 8px; border-radius: 4px; border: 1px solid #21262D; white-space: pre-wrap; word-break: break-all; margin-bottom: 6px; line-height: 1.4; }}
-            .btn-copy-cfg {{ width: 100%; padding: 6px; background-color: #238636; color: #FFF; border: none; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; text-align: center; }}
+            .config-title {{ display: none; }}
+            .config-location {{ display: none; }}
+            .config-text {{ background-color: #161B22; color: #58A6FF; padding: 16px; border-radius: 6px; border: 1px solid #21262D; white-space: pre-wrap; word-break: break-all; margin-bottom: 10px; font-size: 15px; font-weight: bold; line-height: 1.5; text-align: left; }}
+            .btn-copy-cfg {{ width: 100%; padding: 10px; background-color: #238636; color: #FFF; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; }}
             .btn-copy-cfg:active {{ background-color: #2EA043; }}
 
             .btn-copy {{ display: block; width: 100%; padding: 10px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; -webkit-appearance: none; }}
             .btn-copy:active {{ background-color: #00E676; color: #000; }}
             .loading {{ text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }}
+
+
+            .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 8px; background-color: #141416; padding: 8px 12px; border-radius: 6px; }}
+            .grid-item {{ display: flex; flex-direction: column; overflow: hidden; }}
+            .grid-item.right-align {{ text-align: right; align-items: flex-end; }}
         </style>
     </head>
     <body>
         <div class="header">
-            <div class="title">📋 รายละเอียดงานค้าง True WiFi ประจำเขต</div>
+            <div class="title">📋 รายละเอียดงานค้าง True WiFi </div>
             <div class="setting-bar">
                 <input type="text" id="empIdInput" class="emp-input" placeholder="🆔 Employee ID (8 หลัก)" onchange="saveEmpId()">
             </div>
@@ -906,11 +911,7 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ipActionHtml = ip !== '-' ? `
-                <div class="action-btn-group">
-                    <button class="btn-action btn-ping" onclick="runPingTest('${{ip}}', '${{cardId}}')">⚡ Ping</button>
-                    <button class="btn-action btn-cfg" onclick="toggleApConfig('${{ip}}', '${{cardId}}')">⚙️ Config</button>
-                </div>` : '';
+                let ipActionHtml = ip !== '-' ? '<div class="action-btn-group"><button class="btn-action btn-ping" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button><button class="btn-action btn-cfg" onclick="toggleApConfig(\\'' + ip + '\\', \\'' + cardId + '\\')">⚙️ Config</button></div>' : '';
 
                 return `
                 <div class="card" id="${{cardId}}">
@@ -927,6 +928,7 @@ def liff_page():
                     </div>
 
                     <div class="grid-container">
+                        <!-- ฝั่งซ้าย: IP ADDRESS และ SEVERITY -->
                         <div class="grid-item">
                             <span class="item-label">IP ADDRESS</span>
                             <div class="ip-action-row">
@@ -934,17 +936,17 @@ def liff_page():
                                 ${{ipActionHtml}}
                             </div>
                             <div id="ping-status-${{cardId}}"></div>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">STATUS</span>
-                            <span class="item-val status">${{status}}</span>
-                        </div>
-                        <div class="grid-item">
-                            <span class="item-label">SEVERITY</span>
+                            
+                            <span class="item-label" style="margin-top: 8px;">SEVERITY</span>
                             <span class="item-val severity">${{severity}}</span>
                         </div>
-                        <div class="grid-item">
-                            <span class="item-label">CREATION DATE</span>
+
+                        <!-- ฝั่งขวา: STATUS และ CREATION DATE (จัดชิดขวา) -->
+                        <div class="grid-item right-align">
+                            <span class="item-label">STATUS</span>
+                            <span class="item-val status">${{status}}</span>
+                            
+                            <span class="item-label" style="margin-top: 8px;">CREATION DATE</span>
                             <span class="item-val" style="font-size:11px; color:#AAA;">${{creationDate}}</span>
                         </div>
                     </div>
@@ -964,8 +966,8 @@ def liff_page():
                     <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดทั้งหมด</button>
                 </div>
                 `;
-            }}
-
+            }}           
+            
             function renderAccordion(data) {{
                 const container = document.getElementById('accordionContainer');
                 container.className = "container";
