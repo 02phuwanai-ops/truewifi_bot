@@ -391,11 +391,18 @@ def create_wifi_flex_message():
     except Exception as e:
         return TextMessage(text=f"❌ เกิดข้อผิดพลาดขณะสร้าง Flex Message: {str(e)}")
 
+from linebot.v3.messaging import (
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
+    ShowLoadingAnimationRequest
+)
+
 # --- LINE Webhook Handler ---
 
 @app.post("/webhook")
 async def webhook_handler(request: Request):
-    """รองรับ Event Webhook POST จาก LINE Messaging API"""
+    """รองรับ Event Webhook POST จาก Cloudflare Router / LINE Messaging API"""
     signature = request.headers.get("X-Line-Signature")
     if not signature:
         raise HTTPException(status_code=400, detail="Missing X-Line-Signature header")
@@ -414,20 +421,40 @@ async def webhook_handler(request: Request):
 def handle_text_message(event: MessageEvent):
     user_text = event.message.text.strip().lower()
     
-    if user_text in ["wifi", "งานค้าง", "report", "สรุป"]:
-        reply_msg = create_wifi_flex_message()
+    # 📌 ดึง target_id สำหรับแสดง Loading Animation
+    source_type = event.source.type
+    if source_type == "group":
+        target_id = event.source.group_id
+    elif source_type == "room":
+        target_id = event.source.room_id
     else:
-        reply_msg = TextMessage(text="พิมพ์ 'wifi' เพื่อดูรายงานสรุปงานค้างซ่อมประจำเขตครับ")
+        target_id = event.source.user_id
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
+
+        # เช็กคีย์เวิร์ดเฉพาะ wifi
+        if user_text == "wifi":
+            # 1. แสดงไอคอน Loading Animation บนหน้าจอผู้ใช้ทันที
+            try:
+                line_bot_api.show_loading_animation(
+                    ShowLoadingAnimationRequest(chat_id=target_id, loading_seconds=10)
+                )
+            except Exception as e:
+                print(f"Could not show loading animation: {e}")
+
+            # 2. สร้าง Flex Message
+            reply_msg = create_wifi_flex_message()
+        else:
+            reply_msg = TextMessage(text="พิมพ์ 'wifi' เพื่อดูรายงานสรุปงานค้างซ่อมประจำเขตครับ")
+
+        # 3. ตอบกลับข้อความผ่าน reply_token (ฟรี)
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[reply_msg]
             )
         )
-
 # --- API Endpoints ---
 
 @app.get("/api/pending_data")
