@@ -10,7 +10,8 @@ from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi,
-    ReplyMessageRequest, TextMessage, FlexMessage, FlexContainer
+    ReplyMessageRequest, TextMessage, FlexMessage, FlexContainer,
+    ShowLoadingAnimationRequest
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from playwright.async_api import async_playwright
@@ -87,9 +88,7 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 async def login_if_needed(page):
     """Login PingAP โดยเลือก HR ตาม Flow จริงของ Browser"""
-
     try:
-        # ตรวจว่าหน้า Login หรือไม่
         login_form = page.locator("form[name='first']")
         login_field = page.locator("input[name='login'], #login")
         password_field = page.locator("input[name='password'], #password")
@@ -107,39 +106,21 @@ async def login_if_needed(page):
 
         print("🔐 PingAP Login detected")
 
-        # -----------------------------
-        # Username
-        # -----------------------------
         username = page.locator("input[name='login']")
         if await username.count() == 0:
             username = page.locator("#login")
 
-        # -----------------------------
-        # Password
-        # -----------------------------
         password = page.locator("input[name='password']")
         if await password.count() == 0:
             password = page.locator("#password")
 
-        if await username.count() == 0:
-            print("❌ ไม่พบช่อง Username")
-            return False
-
-        if await password.count() == 0:
-            print("❌ ไม่พบช่อง Password")
+        if await username.count() == 0 or await password.count() == 0:
+            print("❌ ไม่พบช่อง Username หรือ Password")
             return False
 
         await username.fill(PINGAP_USER)
         await password.fill(PINGAP_PASS)
 
-        print("👤 Username/Password filled")
-
-        # -----------------------------
-        # Login ผ่าน HR
-        # loginTrue() จะทำ:
-        # first.SystemLogin.value='HR'
-        # first.submit()
-        # -----------------------------
         print("👉 กำลังเลือกระบบ HR ผ่าน loginTrue()")
 
         async with page.expect_navigation(
@@ -160,19 +141,8 @@ async def login_if_needed(page):
             print("❌ ไม่พบ function loginTrue()")
             return False
 
-        print("✅ loginTrue() ถูกเรียกแล้ว")
-
         await asyncio.sleep(2)
 
-        print(
-            f"🔎 หลัง Login: "
-            f"url={page.url} | "
-            f"title={await page.title()}"
-        )
-
-        # -----------------------------
-        # ตรวจว่ายังอยู่หน้า Login หรือไม่
-        # -----------------------------
         still_login = (
             await page.locator("form[name='first']").count() > 0
             and await page.locator("input[name='password']").count() > 0
@@ -391,18 +361,9 @@ def create_wifi_flex_message():
     except Exception as e:
         return TextMessage(text=f"❌ เกิดข้อผิดพลาดขณะสร้าง Flex Message: {str(e)}")
 
-from linebot.v3.messaging import (
-    ApiClient,
-    MessagingApi,
-    ReplyMessageRequest,
-    ShowLoadingAnimationRequest
-)
-
 # --- LINE Webhook Handler ---
-
 @app.post("/webhook")
 async def webhook_handler(request: Request):
-    """รองรับ Event Webhook POST จาก Cloudflare Router / LINE Messaging API"""
     signature = request.headers.get("X-Line-Signature")
     if not signature:
         raise HTTPException(status_code=400, detail="Missing X-Line-Signature header")
@@ -421,7 +382,6 @@ async def webhook_handler(request: Request):
 def handle_text_message(event: MessageEvent):
     user_text = event.message.text.strip().lower()
     
-    # 📌 ดึง target_id สำหรับแสดง Loading Animation
     source_type = event.source.type
     if source_type == "group":
         target_id = event.source.group_id
@@ -433,9 +393,7 @@ def handle_text_message(event: MessageEvent):
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
 
-        # เช็กคีย์เวิร์ดเฉพาะ wifi
         if user_text == "wifi":
-            # 1. แสดงไอคอน Loading Animation บนหน้าจอผู้ใช้ทันที
             try:
                 line_bot_api.show_loading_animation(
                     ShowLoadingAnimationRequest(chat_id=target_id, loading_seconds=10)
@@ -443,20 +401,18 @@ def handle_text_message(event: MessageEvent):
             except Exception as e:
                 print(f"Could not show loading animation: {e}")
 
-            # 2. สร้าง Flex Message
             reply_msg = create_wifi_flex_message()
         else:
             reply_msg = TextMessage(text="พิมพ์ 'wifi' เพื่อดูรายงานสรุปงานค้างซ่อมประจำเขตครับ")
 
-        # 3. ตอบกลับข้อความผ่าน reply_token (ฟรี)
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[reply_msg]
             )
         )
-# --- API Endpoints ---
 
+# --- API Endpoints ---
 @app.get("/api/pending_data")
 def get_pending_data_api():
     filtered_df, source, categorized = get_processed_data()
@@ -473,10 +429,8 @@ def get_pending_data_api():
 
 @app.post("/api/ping_test")
 async def ping_test_api(req: PingRequest):
-    """ยิง Ping Test ผ่าน Playwright Browser"""
     try:
         async with async_playwright() as p:
-            # เพิ่ม launch args เพื่อรันในสภาพแวดล้อม Docker/Linux Container
             browser = await p.chromium.launch(
                 headless=True,
                 args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
@@ -514,11 +468,8 @@ async def ping_test_api(req: PingRequest):
         print(f"❌ Ping Test Exception: {str(e)}")
         return {"status": "error", "message": f"Ping Error: {str(e)[:50]}", "raw": str(e)}
 
-import requests
-
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    """Login -> เปิด AP Config Template โดยตรง -> Submit IP -> อ่าน Response/หน้า HTML"""
     browser = None
     try:
         async with async_playwright() as p:
@@ -535,16 +486,10 @@ async def get_ap_config_api(req: ConfigRequest):
                 timeout=30000
             )
 
-            print(f"🔐 PingAP Login Check: url={page.url}")
-
             login_ok = await login_if_needed(page)
 
             if not login_ok:
-                print("❌ PingAP Login ไม่สำเร็จ")
-
                 await browser.close()
-                browser = None
-
                 return {
                     "status": "error",
                     "ip": req.ip,
@@ -554,28 +499,18 @@ async def get_ap_config_api(req: ConfigRequest):
                     "message": "ไม่สามารถ Login PingAP ด้วยระบบ HR ได้"
                 }
 
-            print("✅ ผ่านขั้นตอน PingAP Login แล้ว")
-
             target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-
-            print(f"🌐 Opening AP Config directly: {target_url}")
-
             await page.goto(
                 target_url,
                 wait_until="domcontentloaded",
                 timeout=30000
             )
 
-            # รอให้ form จริงโหลดขึ้นมา ถ้ามีการโหลดช้า
             try:
                 await page.wait_for_selector("#APIP", state="attached", timeout=15000)
             except Exception:
                 pass
 
-            print(f"🎯 AP Config Page: url={page.url} | title={await page.title()}")
-            print(f"🔎 APIP count={await page.locator('#APIP').count()} | Form count={await page.locator('#FRM').count()}")
-
-            # 3. ถ้าไม่เจอ #APIP ให้ตรวจทุก frame อีกครั้ง
             form_target = page
             target_frame = None
             if await page.locator("#APIP").count() == 0:
@@ -584,19 +519,12 @@ async def get_ap_config_api(req: ConfigRequest):
                         if await frame.locator("#APIP").count() > 0:
                             target_frame = frame
                             form_target = frame
-                            print(f"🧩 พบ #APIP ใน frame: {frame.url}")
                             break
                     except Exception:
                         continue
 
             if await form_target.locator("#APIP").count() == 0:
-                # Diagnostic สำคัญ: แสดงข้อความบางส่วนของหน้าที่ Playwright ได้รับ
-                diagnostic = (await page.content())[:2000]
-                print("❌ APIP not found after direct navigation")
-                print(f"📄 HTML length={len(await page.content())}")
-                print(f"📄 HTML preview={diagnostic!r}")
                 await browser.close()
-                browser = None
                 return {
                     "status": "error",
                     "ip": req.ip,
@@ -606,9 +534,6 @@ async def get_ap_config_api(req: ConfigRequest):
                     "message": "AP Config page loaded but #APIP was not found"
                 }
 
-            print(f"🎯 AP Config Form Target: {'frame' if target_frame else 'page'} | url={form_target.url}")
-
-            # 4. กรอก IP และเลือก Cisco 18XX
             await form_target.locator("#APIP").fill(req.ip)
 
             model = form_target.locator("#Model_AP")
@@ -616,15 +541,12 @@ async def get_ap_config_api(req: ConfigRequest):
                 try:
                     await model.select_option(label="Cisco 18XX,28XX,911X")
                 except Exception:
-                    # fallback ถ้า label เปลี่ยน
                     options = await model.locator("option").all_text_contents()
                     for idx, text in enumerate(options):
                         if "18XX" in text:
                             await model.select_option(index=idx)
                             break
 
-            # 5. จับ POST จริงของ Form แล้วกด Command
-            response = None
             html_content = ""
             try:
                 async with page.expect_response(
@@ -637,16 +559,13 @@ async def get_ap_config_api(req: ConfigRequest):
                     await form_target.locator("#SubmitButton").click()
 
                 response = await response_info.value
-                print(f"📨 AP Config POST Response: status={response.status} url={response.url}")
                 try:
                     html_content = await response.text()
-                    print(f"📄 AP Config Response HTML length: {len(html_content)}")
-                except Exception as e:
-                    print(f"⚠️ อ่าน Response HTML ไม่สำเร็จ: {e}")
-            except Exception as e:
-                print(f"⚠️ จับ POST Response ไม่ได้: {e}")
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
-            # 6. Fallback: หลัง submit หน้าอาจ navigate ไปยัง response แล้ว
             if not html_content:
                 try:
                     await page.wait_for_load_state("domcontentloaded", timeout=10000)
@@ -654,9 +573,7 @@ async def get_ap_config_api(req: ConfigRequest):
                     pass
                 await asyncio.sleep(2.0)
                 html_content = await page.content()
-                print(f"📄 AP Config Final Page HTML length: {len(html_content)}")
 
-            # 7. Parse SITE_NAME / ADDRESS จาก HTML
             soup = BeautifulSoup(html_content, "html.parser")
             site_name = "-"
             address_text = "-"
@@ -677,7 +594,6 @@ async def get_ap_config_api(req: ConfigRequest):
                         if not address_text:
                             address_text = str(txt.get("value", "")).strip()
 
-            # fallback selectors
             if site_name == "-":
                 for inp in soup.find_all("input"):
                     ident = str(inp.get("id", ""))
@@ -703,15 +619,11 @@ async def get_ap_config_api(req: ConfigRequest):
                         if address_text:
                             break
 
-            # เอาเฉพาะข้อความก่อน @ ตามที่ต้องการ
             if address_text and address_text != "-":
                 address_text = re.sub(r"\s+", " ", address_text).strip()
                 if "@" in address_text:
                     address_text = address_text.split("@", 1)[0].strip()
 
-            print(f"📍 AP Config RESULT | SITE_NAME={site_name} | ADDRESS={address_text}")
-
-            # CAPWAP เดิม
             capwap_lines = []
             for line in soup.get_text().splitlines():
                 line_str = line.strip()
@@ -720,8 +632,6 @@ async def get_ap_config_api(req: ConfigRequest):
             capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
 
             await browser.close()
-            browser = None
-
             return {
                 "status": "success" if address_text != "-" else "error",
                 "ip": req.ip,
@@ -732,7 +642,6 @@ async def get_ap_config_api(req: ConfigRequest):
             }
 
     except Exception as e:
-        print(f"❌ AP Config Exception: {str(e)}")
         if browser:
             try:
                 await browser.close()
@@ -796,16 +705,16 @@ def liff_page():
             .subject-box {{ background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #E2E2E2; margin-bottom: 8px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }}
             .subject-label {{ color: #888; font-size: 10px; font-weight: bold; display: block; margin-bottom: 2px; }}
 
-            .grid-container {{ display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; margin-bottom: 8px; background-color: #141416; padding: 8px 12px; border-radius: 6px; }}
-            
+            .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 8px; background-color: #141416; padding: 8px 12px; border-radius: 6px; }}
             .grid-item {{ display: flex; flex-direction: column; overflow: hidden; }}
+            .grid-item.right-align {{ text-align: right; align-items: flex-end; }}
+
             .item-label {{ font-size: 10px; color: #888; margin-bottom: 2px; text-transform: uppercase; }}
             .item-val {{ font-size: 12px; color: #FFF; font-weight: 500; word-break: break-all; }}
             .item-val.ip {{ font-family: monospace, sans-serif; color: #64B5F6; font-weight: bold; font-size: 13.5px; }}
             .item-val.status {{ color: #00E676; font-weight: bold; }}
             .item-val.severity {{ color: #FF5252; font-weight: bold; }}
 
-            .ip-action-row {{ display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 2px; }}
             .action-btn-group {{ display: flex; gap: 4px; }}
             
             .btn-action {{ padding: 3px 7px; font-size: 10px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; text-transform: uppercase; display: flex; align-items: center; gap: 3px; }}
@@ -830,15 +739,16 @@ def liff_page():
             .btn-copy:active {{ background-color: #00E676; color: #000; }}
             .loading {{ text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }}
 
-
-            .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 8px; background-color: #141416; padding: 8px 12px; border-radius: 6px; }}
-            .grid-item {{ display: flex; flex-direction: column; overflow: hidden; }}
-            .grid-item.right-align {{ text-align: right; align-items: flex-end; }}
+            /* SA5 Permission & Letter Action Styles */
+            .sa5-action-container {{ background-color: #221212; border: 1px dashed #FF3B30; padding: 8px; border-radius: 6px; margin-bottom: 8px; }}
+            .sa5-title {{ color: #FF5252; font-size: 11px; font-weight: bold; margin-bottom: 6px; }}
+            .btn-permission {{ background-color: #E50914; color: #FFF; width: 100%; padding: 8px; font-size: 12px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 6px; text-align: center; text-decoration: none; display: block; }}
+            .btn-sub-action {{ background-color: #333; color: #DDD; width: 100%; padding: 6px; font-size: 11px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 4px; text-align: center; }}
         </style>
     </head>
     <body>
         <div class="header">
-            <div class="title">📋 รายละเอียดงานค้าง True WiFi </div>
+            <div class="title">📋 รายละเอียดงานค้าง True WiFi</div>
             <div class="setting-bar">
                 <input type="text" id="empIdInput" class="emp-input" placeholder="🆔 Employee ID (8 หลัก)" onchange="saveEmpId()">
             </div>
@@ -914,6 +824,80 @@ def liff_page():
                 return match ? match[0] : '-';
             }}
 
+            // ฟังก์ชันสกัดชื่อสถานที่แบบยืดหยุ่นจาก Subject หรือข้อมูลแถว
+            function extractSiteName(item, subject) {{
+                let rawText = subject + " " + JSON.stringify(item);
+                let siteKeywords = ['Central', 'Terminal', 'Emporium', 'EmQuartier', 'Siam', 'Paragon', 'IconSiam', 'Future', 'Mega', 'Seacon', 'Paradise', 'The Mall', 'True Digital Park', 'Hospital', 'อาคาร', 'The Street', 'Esplanade'];
+                for (let kw of siteKeywords) {{
+                    let regex = new RegExp('(' + kw + '[^,|-]*)', 'i');
+                    let match = rawText.match(regex);
+                    if (match) return match[1].trim();
+                }}
+                return "ฝ่ายอาคาร / ผู้จัดการอาคารสถานที่";
+            }}
+
+            // ฟังก์ชันสร้างและดาวน์โหลดภาพจดหมายขออนุญาต (Canvas)
+            function generateLetterImage(siteName, ticket) {{
+                const canvas = document.createElement('canvas');
+                canvas.width = 800;
+                canvas.height = 1050;
+                const ctx = canvas.getContext('2d');
+
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#E50914';
+                ctx.font = 'bold 32px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText('true', 740, 60);
+
+                const now = new Date();
+                const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+                let dateStr = `${{now.getDate()}} ${{thaiMonths[now.getMonth()]}} ${{now.getFullYear() + 543}}`;
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '16px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(`วันที่ ${{dateStr}}`, 740, 110);
+
+                ctx.textAlign = 'left';
+                ctx.fillText(`ที่ RNSO-BMA/${{ticket}}`, 60, 150);
+                ctx.fillText('เรื่อง ขออนุญาตเข้าปฏิบัติงาน', 60, 190);
+                ctx.fillText(`เรียน ฝ่ายอาคาร (${{siteName}})`, 60, 240);
+
+                ctx.font = '15px sans-serif';
+                let bodyText = [
+                    'ตามที่ บริษัท ทรู อินเทอร์เน็ต คอร์ปอเรชั่น จำกัด ซึ่งเป็นผู้ได้รับใบอนุญาต',
+                    'ประกอบกิจการโทรคมนาคมแบบที่ 3 ได้ให้บริการสื่อสารข้อมูล และได้ให้บริการ',
+                    'สัญญาณอินเทอร์เน็ตภายในอาคารนั้น ใคร่ขออนุญาตเข้าตรวจเช็คอุปกรณ์',
+                    'อินเทอร์เน็ต SW WIFI / AP WIFI Down และขอเปิดห้องที่มีอุปกรณ์ภายในอาคาร',
+                    '',
+                    `สถานที่ปฏิบัติงาน: ${{siteName}}`,
+                    'กำหนดเข้าดำเนินการในรอบสัปดาห์นี้ เวลา 10:00 - 17:00 น.',
+                    '',
+                    'รายชื่อผู้เข้าปฏิบัติงาน:',
+                    '1. คุณกำพล สินชัย Mobile: 082-993-5011',
+                    '2. คุณราชันย์ ปรีดา Mobile: 082-993-4696',
+                    '3. คุณกิตติ ศรีสุวอ Mobile: 082-993-4065',
+                    '',
+                    'จึงใคร่ขอความอนุเคราะห์จากท่านในการอำนวยความสะดวกเข้าปฏิบัติงาน',
+                    'ดังกล่าว ขอบคุณเจ้าหน้าที่อาคารทุกท่านที่ให้ความสะดวกด้วยดีตลอดมา'
+                ];
+
+                let startY = 290;
+                bodyText.forEach(line => {{
+                    ctx.fillText(line, 60, startY);
+                    startY += 28;
+                }});
+
+                ctx.fillText('ขอแสดงความนับถือ', 60, startY + 40);
+
+                let link = document.createElement('a');
+                link.download = `Letter_${{ticket}}_${{siteName.replace(/\\s+/g, '_')}}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }}
+
             function buildCardHtml(item, index) {{
                 let jsonStr = JSON.stringify(item).toLowerCase();
                 let isFemto = jsonStr.includes('femto');
@@ -929,6 +913,8 @@ def liff_page():
                 let status = getVal(item, ['STATUS', 'Tech_Status', 'STATE']) || '-';
                 let severity = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '-';
                 let creationDate = getVal(item, ['CREATIONDATE', 'CREATION_DATE', 'CREATED', 'Tech_timestamp', 'TIMESTAMP']) || '-';
+                
+                let siteName = extractSiteName(item, subject);
 
                 let cardId = 'card-' + Math.random().toString(36).substr(2, 9);
                 let copyText = 'TICKETID: ' + ticket + '\\nIP: ' + ip + '\\nSUBJECT: ' + subject + '\\nSTATUS: ' + status + '\\nSEVERITY: ' + severity + '\\nCREATIONDATE: ' + creationDate;
@@ -938,7 +924,24 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ipActionHtml = ip !== '-' ? '<div class="action-btn-group"><button class="btn-action btn-ping" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button><button class="btn-action btn-cfg" onclick="toggleApConfig(\\'' + ip + '\\', \\'' + cardId + '\\')">⚙️ Config</button></div>' : '';
+                let ticketNoteText = `ช่างพื้นที่ K.Pollawat Worakam Tel.0998744718 รายงานปัญหาที่พบ: ขอเข้า permission (${{siteName}})\\nCSMC Accept:\\nรายละเอียดเพิ่มเติม:\\nขอเข้า permission`;
+                let safeTicketNote = encodeURIComponent(ticketNoteText);
+
+                let isSa5 = severity.toUpperCase() === 'SA5';
+                let sa5ExtraHtml = '';
+
+                if (isSa5) {{
+                    sa5ExtraHtml = `
+                    <div class="sa5-action-container">
+                        <div class="sa5-title">🚨 เมนูด่วนงาน SA5 (สถานที่: ${{siteName}})</div>
+                        <a href="https://csmcbot.truecorp.co.th/updatett/Login" target="_blank" class="btn-permission">🔗 เข้าสู่ระบบ Permission / CSMC</a>
+                        <button class="btn-sub-action" onclick="copySingleValue('${{safeTicketNote}}', 'ข้อความชี้แจง Ticket', this)">📝 คัดลอกข้อความชี้แจงสำหรับ Ticket</button>
+                        <button class="btn-sub-action" onclick="generateLetterImage('${{siteName}}', '${{ticket}}')" style="background-color:#00E676; color:#000;">📥 สร้าง & ดาวน์โหลดรูปจดหมายขออนุญาต</button>
+                    </div>
+                    `;
+                }}
+
+                let ipActionHtml = ip !== '-' ? '<div class="action-btn-group" style="margin-top: 6px; display: flex; gap: 6px; width: 100%;"><button class="btn-action btn-ping" style="flex: 1;" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button><button class="btn-action btn-cfg" style="flex: 1;" onclick="toggleApConfig(\\'' + ip + '\\', \\'' + cardId + '\\')">⚙️ ค้นหา ตำแหน่ง AP</button></div>' : '';
 
                 return `
                 <div class="card" id="${{cardId}}">
@@ -949,17 +952,18 @@ def liff_page():
                         <span class="type-badge ${{isFemto ? 'badge-femto' : 'badge-wifi'}}">${{isFemto ? 'Femto' : 'WiFi'}}</span>
                     </div>
 
+                    ${{sa5ExtraHtml}}
+
                     <div class="subject-box clickable" onclick="copySingleValue('${{safeSubject}}', 'Subject', this)" title="แตะเพื่อคัดลอก Subject">
-                        <span class="subject-label">SUBJECT (แตะเพื่อคัดลอก)</span>
+                        <span class="subject-label">SUBJECT & สถานที่: ${{siteName}} (แตะเพื่อคัดลอก)</span>
                         ${{subject}}
                     </div>
 
                     <div class="grid-container">
-                        <!-- ฝั่งซ้าย: IP ADDRESS และ SEVERITY -->
                         <div class="grid-item">
                             <span class="item-label">IP ADDRESS</span>
-                            <div class="ip-action-row">
-                                <span class="item-val ip clickable" onclick="copySingleValue('${{safeIp}}', 'IP Address', this)">${{ip}}</span>
+                            <div style="width: 100%;">
+                                <span class="item-val ip clickable" onclick="copySingleValue('${{safeIp}}', 'IP Address', this)" style="display: block;">${{ip}}</span>
                                 ${{ipActionHtml}}
                             </div>
                             <div id="ping-status-${{cardId}}"></div>
@@ -968,7 +972,6 @@ def liff_page():
                             <span class="item-val severity">${{severity}}</span>
                         </div>
 
-                        <!-- ฝั่งขวา: STATUS และ CREATION DATE (จัดชิดขวา) -->
                         <div class="grid-item right-align">
                             <span class="item-label">STATUS</span>
                             <span class="item-val status">${{status}}</span>
@@ -993,7 +996,7 @@ def liff_page():
                     <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดทั้งหมด</button>
                 </div>
                 `;
-            }}           
+            }}        
             
             function renderAccordion(data) {{
                 const container = document.getElementById('accordionContainer');
@@ -1001,6 +1004,39 @@ def liff_page():
                 container.innerHTML = '';
 
                 let totalVisible = 0;
+                let sa5Items = [];
+
+                areaConfig.forEach(area => {{
+                    let items = data[area.id] || [];
+                    items.forEach(item => {{
+                        let sev = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '';
+                        if (sev.toUpperCase() === 'SA5') {{
+                            sa5Items.push(item);
+                        }}
+                    }});
+                }});
+
+                if (sa5Items.length > 0) {{
+                    let sa5Div = document.createElement('div');
+                    sa5Div.className = 'area-group open';
+                    sa5Div.id = 'area-group-sa5-special';
+
+                    let sa5CardsHtml = sa5Items.map((item, idx) => buildCardHtml(item, idx)).join('');
+
+                    sa5Div.innerHTML = `
+                        <div class="area-header" onclick="toggleArea('sa5-special')" style="background-color: #3A1010; border-left: 4px solid #FF3B30;">
+                            <span style="color: #FF5252; font-weight: bold;">🚨 งานใหม่ SA5 (ต้องจัดการ 7 วัน)</span>
+                            <div>
+                                <span class="area-badge" style="background-color: #FF3B30; color: #FFF;">${{sa5Items.length}}</span>
+                                <span class="arrow-icon">▼</span>
+                            </div>
+                        </div>
+                        <div class="area-content" id="area-content-sa5-special">
+                            ${{sa5CardsHtml}}
+                        </div>
+                    `;
+                    container.appendChild(sa5Div);
+                }}
 
                 areaConfig.forEach(area => {{
                     let items = data[area.id] || [];
@@ -1037,7 +1073,9 @@ def liff_page():
 
             function toggleArea(areaId) {{
                 const group = document.getElementById('area-group-' + areaId);
-                group.classList.toggle('open');
+                if (group) {{
+                    group.classList.toggle('open');
+                }}
             }}
 
             async function runPingTest(ip, cardId) {{
@@ -1076,7 +1114,7 @@ def liff_page():
 
                 configBox.classList.add('open');
                 locBox.innerHTML = '⏳ กำลังดึงข้อมูลจาก pingap...';
-                textBox.innerText = 'กำลังดึง Config...';
+                textBox.innerText = 'กำลังดึง ตำแหน่งAP...';
 
                 try {{
                     const res = await fetch('/api/get_ap_config', {{
