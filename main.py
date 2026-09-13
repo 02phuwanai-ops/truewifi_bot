@@ -656,7 +656,7 @@ async def get_ap_config_api(req: ConfigRequest):
 
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
-    html_content = f"""
+    html_content =  f"""
     <!DOCTYPE html>
     <html lang="th">
     <head>
@@ -748,7 +748,7 @@ def liff_page():
     </head>
     <body>
         <div class="header">
-            <div class="title">📋 รายละเอียดงานค้าง True WiFi</div>
+            <div class="title">📋 รายละเอียดงาน True WiFi</div>
             <div class="setting-bar">
                 <input type="text" id="empIdInput" class="emp-input" placeholder="🆔 Employee ID (8 หลัก)" onchange="saveEmpId()">
             </div>
@@ -834,7 +834,7 @@ def liff_page():
                 }}
                 return "ฝ่ายอาคาร / ผู้จัดการอาคารสถานที่";
             }}
-
+            
             function generateLetterImage(siteName, ticket) {{
                 const canvas = document.createElement('canvas');
                 canvas.width = 800;
@@ -892,22 +892,61 @@ def liff_page():
                 ctx.fillText('ขอแสดงความนับถือ', 60, startY + 40);
 
                 let dataUrl = canvas.toDataURL('image/png');
-                let win = window.open('', '_blank');
-                if (win) {{
-                    win.document.write(`
-                        <html>
-                            <head><title>จดหมายขออนุญาต - ${{ticket}}</title></head>
-                            <body style="background:#222; margin:0; text-align:center; padding:10px;">
-                                <p style="color:#00E676; font-family:sans-serif; font-size:14px; margin-bottom:10px;">💡 แตะค้างที่รูปภาพด้านล่างเพื่อ "บันทึกภาพ" ลงในมือถือของคุณ</p>
-                                <img src="${{dataUrl}}" style="max-width:100%; height:auto; border:1px solid #444;" />
-                            </body>
-                        </html>
-                    `);
+
+                let existingModal = document.getElementById('letterModal');
+                if (existingModal) existingModal.remove();
+
+                let modal = document.createElement('div');
+                modal.id = 'letterModal';
+                modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:15px; box-sizing:border-box;';
+
+                modal.innerHTML = `
+                    <div style="background:#1C1C1E; width:100%; max-width:450px; border-radius:12px; padding:15px; display:flex; flex-direction:column; align-items:center; border:1px solid #333; max-height:90vh;">
+                        <div style="color:#00E676; font-size:13px; font-weight:bold; margin-bottom:10px; text-align:center;">
+                            💡 แตะค้างที่รูปภาพเพื่อ "บันทึกภาพ" ลงในมือถือ
+                        </div>
+                        <div style="overflow-y:auto; width:100%; max-height:65vh; margin-bottom:12px; text-align:center;">
+                            <img src="${{dataUrl}}" style="max-width:100%; height:auto; border-radius:6px; border:1px solid #444;" />
+                        </div>
+                        <button onclick="document.getElementById('letterModal').remove()" style="width:100%; padding:10px; background-color:#E50914; color:#FFF; border:none; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer;">
+                            ✖ ปิดหน้าต่าง
+                        </button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }}
+
+            function copyTextToClipboard(text, onSuccess, onError) {{
+                if (navigator.clipboard && navigator.clipboard.writeText) {{
+                    navigator.clipboard.writeText(text).then(onSuccess).catch(() => {{
+                        fallbackCopyText(text, onSuccess, onError);
+                    }});
                 }} else {{
-                    let link = document.createElement('a');
-                    link.download = `Letter_${{ticket}}_${{siteName.replace(/\\s+/g, '_')}}.png`;
-                    link.href = dataUrl;
-                    link.click();
+                    fallbackCopyText(text, onSuccess, onError);
+                }}
+            }}
+
+            function fallbackCopyText(text, onSuccess, onError) {{
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.top = "0";
+                textArea.style.left = "0";
+                textArea.style.opacity = "0";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {{
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    if (successful) {{
+                        if (onSuccess) onSuccess();
+                    }} else {{
+                        if (onError) onError(new Error('Copy failed'));
+                    }}
+                }} catch (err) {{
+                    document.body.removeChild(textArea);
+                    if (onError) onError(err);
                 }}
             }}
 
@@ -1153,25 +1192,29 @@ def liff_page():
             function copyConfigText(cardId) {{
                 const text = document.getElementById('config-text-' + cardId).innerText;
                 const btn = document.getElementById('btn-copy-cfg-' + cardId);
-                navigator.clipboard.writeText(text).then(() => {{
+                copyTextToClipboard(text, () => {{
                     let oldText = btn.innerText;
                     btn.innerText = '✅ คัดลอก Config เรียบร้อย!';
                     setTimeout(() => btn.innerText = oldText, 2000);
+                }}, () => {{
+                    alert('ไม่สามารถคัดลอกข้อความได้');
                 }});
             }}
 
             function copySingleValue(encodedValue, label, element) {{
                 const value = decodeURIComponent(encodedValue);
-                navigator.clipboard.writeText(value).then(() => {{
+                copyTextToClipboard(value, () => {{
                     let originalText = element.innerText;
                     element.innerText = '✅ คัดลอกแล้ว';
                     setTimeout(() => element.innerText = originalText, 1500);
+                }}, () => {{
+                    alert('ไม่สามารถคัดลอกข้อความได้');
                 }});
             }}
 
             function copyToClipboard(encodedText, btnElement) {{
                 const text = decodeURIComponent(encodedText);
-                navigator.clipboard.writeText(text).then(() => {{
+                copyTextToClipboard(text, () => {{
                     let oldText = btnElement.innerText;
                     btnElement.innerText = '✅ คัดลอกรายละเอียดแล้ว!';
                     btnElement.style.backgroundColor = '#00E676';
@@ -1181,6 +1224,8 @@ def liff_page():
                         btnElement.style.backgroundColor = '#2A2A2E';
                         btnElement.style.color = '#DDD';
                     }}, 2000);
+                }}, () => {{
+                    alert('ไม่สามารถคัดลอกข้อความได้');
                 }});
             }}
 
