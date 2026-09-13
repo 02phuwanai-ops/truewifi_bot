@@ -1043,8 +1043,8 @@ def liff_page():
                         <div class="config-location" id="config-loc-${{cardId}}">
                             ⏳ กำลังค้นหาข้อมูลสถานที่ซ่อมหน้างานจริง...
                         </div>
-                        <div class="config-text" id="config-text-${{cardId}}">กำลังสร้างชุดคำสั่ง Capwap...</div>
-                        <button class="btn-copy-cfg" id="btn-copy-cfg-${{cardId}}" onclick="copyConfigText('${{cardId}}')">📋 คัดลอก Config ทั้งหมด</button>
+                        <div class="config-text" id="config-text-${{cardId}}">กำลังสร้างชุดคำสั่ง AP...</div>
+                        <button class="btn-copy-cfg" id="btn-copy-cfg-${{cardId}}" onclick="copyConfigText('${{cardId}}')">📋 คัดลอกต่ำแหน่ง AP ทั้งหมด</button>
                     </div>
 
                     <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดทั้งหมด</button>
@@ -1079,7 +1079,7 @@ def liff_page():
 
                     sa5Div.innerHTML = `
                         <div class="area-header" onclick="toggleArea('sa5-special')" style="background-color: #3A1010; border-left: 4px solid #FF3B30;">
-                            <span style="color: #FF5252; font-weight: bold;">🚨 5 (ต้องเคลียร์ ภายใน 24 ชั่วโมง)</span>
+                            <span style="color: #FF5252; font-weight: bold;">🚨 SA5 (ต้องเคลียร์ ภายใน 24 ชั่วโมง)</span>
                             <div>
                                 <span class="area-badge" style="background-color: #FF3B30; color: #FFF;">${{sa5Items.length}}</span>
                                 <span class="arrow-icon">▼</span>
