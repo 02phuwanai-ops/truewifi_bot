@@ -69,7 +69,7 @@ AREA_CONFIG = [
             'พระราม 9', 'พระราม๙', 'พระราม9', 
             'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม'
         ],
-        "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พพหลโยธิน'] 
+        "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน'] 
     },
     {
         "id": "area5", 
@@ -824,7 +824,6 @@ def liff_page():
                 return match ? match[0] : '-';
             }}
 
-            // ฟังก์ชันสกัดชื่อสถานที่แบบยืดหยุ่นจาก Subject หรือข้อมูลแถว
             function extractSiteName(item, subject) {{
                 let rawText = subject + " " + JSON.stringify(item);
                 let siteKeywords = ['Central', 'Terminal', 'Emporium', 'EmQuartier', 'Siam', 'Paragon', 'IconSiam', 'Future', 'Mega', 'Seacon', 'Paradise', 'The Mall', 'True Digital Park', 'Hospital', 'อาคาร', 'The Street', 'Esplanade'];
@@ -836,7 +835,6 @@ def liff_page():
                 return "ฝ่ายอาคาร / ผู้จัดการอาคารสถานที่";
             }}
 
-            // ฟังก์ชันสร้างและดาวน์โหลดภาพจดหมายขออนุญาต (Canvas)
             function generateLetterImage(siteName, ticket) {{
                 const canvas = document.createElement('canvas');
                 canvas.width = 800;
@@ -876,9 +874,10 @@ def liff_page():
                     'กำหนดเข้าดำเนินการในรอบสัปดาห์นี้ เวลา 10:00 - 17:00 น.',
                     '',
                     'รายชื่อผู้เข้าปฏิบัติงาน:',
-                    '1. คุณกำพล สินชัย Mobile: 082-993-5011',
-                    '2. คุณราชันย์ ปรีดา Mobile: 082-993-4696',
-                    '3. คุณกิตติ ศรีสุวอ Mobile: 082-993-4065',
+                    '1. ...................................................................',
+                    '2. ...................................................................',
+                    '3. ...................................................................',
+                    '4. ...................................................................',
                     '',
                     'จึงใคร่ขอความอนุเคราะห์จากท่านในการอำนวยความสะดวกเข้าปฏิบัติงาน',
                     'ดังกล่าว ขอบคุณเจ้าหน้าที่อาคารทุกท่านที่ให้ความสะดวกด้วยดีตลอดมา'
@@ -892,10 +891,24 @@ def liff_page():
 
                 ctx.fillText('ขอแสดงความนับถือ', 60, startY + 40);
 
-                let link = document.createElement('a');
-                link.download = `Letter_${{ticket}}_${{siteName.replace(/\\s+/g, '_')}}.png`;
-                link.href = canvas.toDataURL('image/png');
-                link.click();
+                let dataUrl = canvas.toDataURL('image/png');
+                let win = window.open('', '_blank');
+                if (win) {{
+                    win.document.write(`
+                        <html>
+                            <head><title>จดหมายขออนุญาต - ${{ticket}}</title></head>
+                            <body style="background:#222; margin:0; text-align:center; padding:10px;">
+                                <p style="color:#00E676; font-family:sans-serif; font-size:14px; margin-bottom:10px;">💡 แตะค้างที่รูปภาพด้านล่างเพื่อ "บันทึกภาพ" ลงในมือถือของคุณ</p>
+                                <img src="${{dataUrl}}" style="max-width:100%; height:auto; border:1px solid #444;" />
+                            </body>
+                        </html>
+                    `);
+                }} else {{
+                    let link = document.createElement('a');
+                    link.download = `Letter_${{ticket}}_${{siteName.replace(/\\s+/g, '_')}}.png`;
+                    link.href = dataUrl;
+                    link.click();
+                }}
             }}
 
             function buildCardHtml(item, index) {{
@@ -924,7 +937,7 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ticketNoteText = `ช่างพื้นที่ K.Pollawat Worakam Tel.0998744718 รายงานปัญหาที่พบ: ขอเข้า permission (${{siteName}})\\nCSMC Accept:\\nรายละเอียดเพิ่มเติม:\\nขอเข้า permission`;
+                let ticketNoteText = `ขอเข้า permission (${{siteName}})\\nCSMC Accept:\\nรายละเอียดเพิ่มเติม:\\nขอเข้า permission`;
                 let safeTicketNote = encodeURIComponent(ticketNoteText);
 
                 let isSa5 = severity.toUpperCase() === 'SA5';
@@ -1025,7 +1038,7 @@ def liff_page():
 
                     sa5Div.innerHTML = `
                         <div class="area-header" onclick="toggleArea('sa5-special')" style="background-color: #3A1010; border-left: 4px solid #FF3B30;">
-                            <span style="color: #FF5252; font-weight: bold;">🚨 งานใหม่ SA5 (ต้องจัดการ 7 วัน)</span>
+                            <span style="color: #FF5252; font-weight: bold;">🚨 5 (ต้องเคลียร์ ภายใน 24 ชั่วโมง)</span>
                             <div>
                                 <span class="area-badge" style="background-color: #FF3B30; color: #FFF;">${{sa5Items.length}}</span>
                                 <span class="arrow-icon">▼</span>
