@@ -903,11 +903,14 @@ def liff_page():
                 modal.innerHTML = `
                     <div style="background:#1C1C1E; width:100%; max-width:450px; border-radius:12px; padding:15px; display:flex; flex-direction:column; align-items:center; border:1px solid #333; max-height:90vh;">
                         <div style="color:#00E676; font-size:13px; font-weight:bold; margin-bottom:10px; text-align:center;">
-                            💡 แตะค้างที่รูปภาพเพื่อ "บันทึกภาพ" ลงในมือถือ
+                            💡 กดปุ่มด้านล่างเพื่อบันทึกรูปภาพลงมือถือ
                         </div>
-                        <div style="overflow-y:auto; width:100%; max-height:65vh; margin-bottom:12px; text-align:center;">
+                        <div style="overflow-y:auto; width:100%; max-height:55vh; margin-bottom:12px; text-align:center;">
                             <img src="${{dataUrl}}" style="max-width:100%; height:auto; border-radius:6px; border:1px solid #444;" />
                         </div>
+                        <a href="${{dataUrl}}" download="Permission_${{ticket}}.png" style="width:100%; padding:10px; background-color:#00E676; color:#000; border:none; border-radius:6px; font-weight:bold; font-size:14px; text-align:center; text-decoration:none; display:block; margin-bottom:8px;">
+                            📥 บันทึกรูปภาพลงเครื่อง
+                        </a>
                         <button onclick="document.getElementById('letterModal').remove()" style="width:100%; padding:10px; background-color:#E50914; color:#FFF; border:none; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer;">
                             ✖ ปิดหน้าต่าง
                         </button>
