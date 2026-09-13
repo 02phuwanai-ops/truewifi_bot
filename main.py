@@ -1010,7 +1010,6 @@ def liff_page():
                     ${{sa5ExtraHtml}}
 
                     <div class="subject-box clickable" onclick="copySingleValue('${{safeSubject}}', 'Subject', this)" title="แตะเพื่อคัดลอก Subject">
-                        <span class="subject-label">SUBJECT & สถานที่: ${{siteName}} (แตะเพื่อคัดลอก)</span>
                         ${{subject}}
                     </div>
 
