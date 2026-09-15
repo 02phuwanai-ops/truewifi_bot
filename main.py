@@ -68,6 +68,7 @@ AREA_CONFIG = [
             'Central Plaza Grand Rama 9', 'Bangkok Hospital Research Center',
             'พระราม 9', 'พระราม๙', 'พระราม9', 
             'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม'
+            'เมืองไทย ภัทร', 'muang thai phatra'
         ],
         "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน'] 
     },
