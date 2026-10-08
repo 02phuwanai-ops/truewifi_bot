@@ -5,3 +5,4 @@ openpyxl
 beautifulsoup4
 line-bot-sdk
 playwright
+paramiko

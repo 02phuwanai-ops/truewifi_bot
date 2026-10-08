@@ -63,7 +63,7 @@ AREA_CONFIG = [
         "id": "area4", 
         "name": "4. ห้วยขวาง", 
         "keywords": [
-            'I04964B', 'I80780B', 
+            'I04964B', 'I80780B''I06217B', 
             'ห้วยขวาง', 'Grand Rama 9', 'Grand Rama9', 
             'Central Plaza Grand Rama 9', 'Bangkok Hospital Research Center',
             'พระราม 9', 'พระราม๙', 'พระราม9', 
@@ -430,6 +430,7 @@ def get_pending_data_api():
 
 @app.post("/api/ping_test")
 async def ping_test_api(req: PingRequest):
+    browser = None
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -439,35 +440,92 @@ async def ping_test_api(req: PingRequest):
             context = await browser.new_context(user_agent=USER_AGENT)
             page = await context.new_page()
 
-            target_url = f"{PINGAP_BASE_URL}/test"
-            await page.goto(target_url, wait_until="networkidle", timeout=30000)
+            # 1. เข้าหน้าเว็บหลักและ Login (เหมือนหน้า Config)
+            await page.goto(
+                PINGAP_BASE_URL,
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
             
-            await login_if_needed(page)
+            login_ok = await login_if_needed(page)
+            if not login_ok:
+                await browser.close()
+                return {"status": "error", "message": "test false."}
 
-            if await page.locator("input[name='emp_id']").count() > 0:
-                await page.fill("input[name='emp_id']", req.emp_id)
-            if await page.locator("input[name='ip']").count() > 0:
-                await page.fill("input[name='ip']", req.ip)
+            # 2. วิ่งไปที่หน้า Test ของ PingAP
+            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=2b307fe0b98f1c24d0b5b7908"
+            await page.goto(
+                target_url,
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
 
-            await asyncio.sleep(1)
+            # ค้นหาฟอร์มและ iframe (ป้องกันเคสอยู่ในกรอบ iframe เหมือนหน้า Config)
+            form_target = page
+            target_frame = None
+            if await page.locator("input[name='ip'], input#APIP").count() == 0:
+                for frame in page.frames:
+                    try:
+                        if await frame.locator("input[name='ip'], input#APIP").count() > 0:
+                            target_frame = frame
+                            form_target = frame
+                            break
+                    except Exception:
+                        continue
 
-            if await page.locator("input[type='submit']").count() > 0:
-                await page.click("input[type='submit']")
-                await page.wait_for_load_state("networkidle", timeout=30000)
+            # กรอก Employee ID และ IP Address
+            emp_input = form_target.locator("input[name='emp_id'], input#emp_id")
+            if await emp_input.count() > 0:
+                await emp_input.fill(req.emp_id)
 
-            page_content = (await page.content()).lower()
+            ip_input = form_target.locator("input[name='ip'], input#APIP, input[name='APIP']")
+            if await ip_input.count() > 0:
+                await ip_input.fill(req.ip)
+
+            await asyncio.sleep(1.0)
+
+            # กดปุ่ม Submit เพื่อเริ่มรัน Test
+            submit_btn = form_target.locator("input[type='submit'], button[type='submit'], #SubmitButton")
+            html_content = ""
+            
+            if await submit_btn.count() > 0:
+                try:
+                    async with page.expect_response(
+                        lambda r: r.request.method.upper() == "POST" and "/wifi/index.asp" in r.url,
+                        timeout=20000
+                    ) as response_info:
+                        await submit_btn.first.click()
+                    response = await response_info.value
+                    html_content = await response.text()
+                except Exception:
+                    html_content = await page.content()
+            else:
+                await asyncio.sleep(2.0)
+                html_content = await page.content()
+
             await browser.close()
 
-            if any(k in page_content for k in ["ping ok", "reply from", "bytes="]):
-                return {"status": "success", "message": "Ping OK", "raw": "Ping Test OK"}
-            elif any(k in page_content for k in ["ping fail", "request timed out", "unreachable"]):
-                return {"status": "fail", "message": "Ping Fail", "raw": "Ping Test Fail"}
+            # ตรวจสอบคำตอบจากหน้าเว็บ (ปรับปรุงเงื่อนไขให้รองรับ "ping test ok" จากหน้าเว็บจริง)
+            html_lower = html_content.lower()
+            
+            # เช็คเคสพัง / Time Out ก่อน
+            if any(k in html_lower for k in ["ping fail", "request timed out", "unreachable", "test false", "time out", "ping time out"]):
+                return {"status": "fail", "message": "test false."}
+            
+            # เช็คเคสสำเร็จ (เพิ่ม "ping test ok" เข้าไปรองรับหน้าเว็บจริง)
+            elif any(k in html_lower for k in ["ping test ok", "ping ok", "reply from", "bytes=", "test ok"]):
+                return {"status": "success", "message": "Test OK"}
             else:
-                return {"status": "success", "message": "Ping Completed", "raw": page_content[:300]}
+                return {"status": "fail", "message": "test false."}
 
     except Exception as e:
-        print(f"❌ Ping Test Exception: {str(e)}")
-        return {"status": "error", "message": f"Ping Error: {str(e)[:50]}", "raw": str(e)}
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
+        print(f"❌ Ping Test Error: {str(e)}")
+        return {"status": "error", "message": "test false."}
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
