@@ -738,7 +738,7 @@ async def get_ap_config_api(req: ConfigRequest):
 
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
-    html_content =  f"""
+    html_content = """
     <!DOCTYPE html>
     <html lang="th">
     <head>
@@ -747,85 +747,85 @@ def liff_page():
         <title>รายละเอียดงานค้าง True WiFi</title>
         <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
         <style>
-            * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }}
-            html, body {{ width: 100vw; min-height: 100vh; background-color: #121212; color: #E0E0E0; padding: 0; margin: 0; font-size: 14px; overflow-x: hidden; }}
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
+            html, body { width: 100vw; min-height: 100vh; background-color: #121212; color: #E0E0E0; padding: 0; margin: 0; font-size: 14px; overflow-x: hidden; }
             
-            .container {{ width: 100%; max-width: 100%; padding: 8px 8px 24px 8px; }}
+            .container { width: 100%; max-width: 100%; padding: 8px 8px 24px 8px; }
             
-            .header {{ position: -webkit-sticky; position: sticky; top: 0; background-color: #121212; padding: 10px 10px; z-index: 100; border-bottom: 1px solid #222; width: 100%; }}
-            .title {{ color: #00E676; font-size: 15px; font-weight: bold; margin-bottom: 6px; text-align: center; }}
+            .header { position: -webkit-sticky; position: sticky; top: 0; background-color: #121212; padding: 10px 10px; z-index: 100; border-bottom: 1px solid #222; width: 100%; }
+            .title { color: #00E676; font-size: 15px; font-weight: bold; margin-bottom: 6px; text-align: center; }
             
-            .setting-bar {{ display: flex; gap: 6px; margin-bottom: 8px; }}
-            .emp-input {{ flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 12px; outline: none; }}
-            .search-box {{ width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 13px; outline: none; -webkit-appearance: none; }}
-            .search-box:focus, .emp-input:focus {{ border-color: #00E676; }}
+            .setting-bar { display: flex; gap: 6px; margin-bottom: 8px; }
+            .emp-input { flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 12px; outline: none; }
+            .search-box { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #333; background-color: #1E1E1E; color: #FFF; font-size: 13px; outline: none; -webkit-appearance: none; }
+            .search-box:focus, .emp-input:focus { border-color: #00E676; }
             
-            .count-info {{ margin-top: 4px; font-size: 11px; color: #00E676; text-align: right; font-weight: bold; }}
+            .count-info { margin-top: 4px; font-size: 11px; color: #00E676; text-align: right; font-weight: bold; }
             
-            .area-group {{ width: 100%; margin-bottom: 10px; border-radius: 8px; overflow: hidden; border: 1px solid #2C2C2E; background-color: #18181A; }}
-            .area-header {{ width: 100%; padding: 12px 10px; background-color: #222225; color: #FFF; font-weight: bold; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }}
-            .area-header:active {{ background-color: #2C2C30; }}
-            .area-badge {{ background-color: #00E676; color: #000; font-size: 12px; padding: 2px 8px; border-radius: 12px; font-weight: bold; }}
-            .area-badge.zero {{ background-color: #333; color: #777; }}
-            .arrow-icon {{ transition: transform 0.3s; font-size: 12px; color: #888; margin-left: 6px; }}
-            .area-group.open .arrow-icon {{ transform: rotate(180deg); color: #00E676; }}
+            .area-group { width: 100%; margin-bottom: 10px; border-radius: 8px; overflow: hidden; border: 1px solid #2C2C2E; background-color: #18181A; }
+            .area-header { width: 100%; padding: 12px 10px; background-color: #222225; color: #FFF; font-weight: bold; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+            .area-header:active { background-color: #2C2C30; }
+            .area-badge { background-color: #00E676; color: #000; font-size: 12px; padding: 2px 8px; border-radius: 12px; font-weight: bold; }
+            .area-badge.zero { background-color: #333; color: #777; }
+            .arrow-icon { transition: transform 0.3s; font-size: 12px; color: #888; margin-left: 6px; }
+            .area-group.open .arrow-icon { transform: rotate(180deg); color: #00E676; }
             
-            .area-content {{ display: none; padding: 8px 4px; }}
-            .area-group.open .area-content {{ display: block; }}
+            .area-content { display: none; padding: 8px 4px; }
+            .area-group.open .area-content { display: block; }
 
-            .card {{ width: 100%; background-color: #1C1C1E; border-radius: 8px; padding: 10px; margin-bottom: 8px; border: 1px solid #2A2A2D; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }}
+            .card { width: 100%; background-color: #1C1C1E; border-radius: 8px; padding: 10px; margin-bottom: 8px; border: 1px solid #2A2A2D; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
             
-            .card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; }}
-            .ticket-badge {{ font-family: monospace, sans-serif; font-size: 15px; font-weight: bold; color: #FFD700; word-break: break-all; }}
-            .type-badge {{ font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; flex-shrink: 0; }}
-            .badge-wifi {{ background-color: rgba(255, 215, 0, 0.15); color: #FFD700; border: 1px solid #FFD700; }}
-            .badge-femto {{ background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid #00E676; }}
+            .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; }
+            .ticket-badge { font-family: monospace, sans-serif; font-size: 15px; font-weight: bold; color: #FFD700; word-break: break-all; }
+            .type-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; flex-shrink: 0; }
+            .badge-wifi { background-color: rgba(255, 215, 0, 0.15); color: #FFD700; border: 1px solid #FFD700; }
+            .badge-femto { background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid #00E676; }
 
-            .clickable {{ cursor: pointer; transition: opacity 0.2s; }}
-            .clickable:active {{ opacity: 0.6; }}
+            .clickable { cursor: pointer; transition: opacity 0.2s; }
+            .clickable:active { opacity: 0.6; }
 
-            .subject-box {{ background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #E2E2E2; margin-bottom: 8px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }}
-            .subject-label {{ color: #888; font-size: 10px; font-weight: bold; display: block; margin-bottom: 2px; }}
+            .subject-box { background-color: #26262A; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #E2E2E2; margin-bottom: 8px; line-height: 1.4; border-left: 3px solid #00E676; word-break: break-word; }
+            .subject-label { color: #888; font-size: 10px; font-weight: bold; display: block; margin-bottom: 2px; }
 
-            .grid-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 8px; background-color: #141416; padding: 8px 12px; border-radius: 6px; }}
-            .grid-item {{ display: flex; flex-direction: column; overflow: hidden; }}
-            .grid-item.right-align {{ text-align: right; align-items: flex-end; }}
+            .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 8px; background-color: #141416; padding: 8px 12px; border-radius: 6px; }
+            .grid-item { display: flex; flex-direction: column; overflow: hidden; }
+            .grid-item.right-align { text-align: right; align-items: flex-end; }
 
-            .item-label {{ font-size: 10px; color: #888; margin-bottom: 2px; text-transform: uppercase; }}
-            .item-val {{ font-size: 12px; color: #FFF; font-weight: 500; word-break: break-all; }}
-            .item-val.ip {{ font-family: monospace, sans-serif; color: #64B5F6; font-weight: bold; font-size: 13.5px; }}
-            .item-val.status {{ color: #00E676; font-weight: bold; }}
-            .item-val.severity {{ color: #FF5252; font-weight: bold; }}
+            .item-label { font-size: 10px; color: #888; margin-bottom: 2px; text-transform: uppercase; }
+            .item-val { font-size: 12px; color: #FFF; font-weight: 500; word-break: break-all; }
+            .item-val.ip { font-family: monospace, sans-serif; color: #64B5F6; font-weight: bold; font-size: 13.5px; }
+            .item-val.status { color: #00E676; font-weight: bold; }
+            .item-val.severity { color: #FF5252; font-weight: bold; }
 
-            .action-btn-group {{ display: flex; gap: 4px; }}
+            .action-btn-group { display: flex; gap: 4px; }
             
-            .btn-action {{ padding: 3px 7px; font-size: 10px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; text-transform: uppercase; display: flex; align-items: center; gap: 3px; }}
-            .btn-ping {{ background-color: #00E676; color: #000; }}
-            .btn-ping:active {{ background-color: #00B0FF; }}
-            .btn-cfg {{ background-color: #FF9100; color: #000; }}
-            .btn-cfg:active {{ background-color: #FFD600; }}
+            .btn-action { padding: 3px 7px; font-size: 10px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; text-transform: uppercase; display: flex; align-items: center; gap: 3px; }
+            .btn-ping { background-color: #00E676; color: #000; }
+            .btn-ping:active { background-color: #00B0FF; }
+            .btn-cfg { background-color: #FF9100; color: #000; }
+            .btn-cfg:active { background-color: #FFD600; }
             
-            .ping-result-badge {{ font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; margin-top: 4px; display: inline-block; }}
-            .ping-ok {{ background-color: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }}
-            .ping-fail {{ background-color: rgba(255, 82, 82, 0.2); color: #FF5252; border: 1px solid #FF5252; }}
+            .ping-result-badge { font-size: 10px; font-weight: bold; padding: 1px 5px; border-radius: 3px; margin-top: 4px; display: inline-block; }
+            .ping-ok { background-color: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
+            .ping-fail { background-color: rgba(255, 82, 82, 0.2); color: #FF5252; border: 1px solid #FF5252; }
 
-            .config-box {{ display: none; background-color: #0D1117; border: 1px solid #30363D; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-family: monospace; }}
-            .config-box.open {{ display: block; }}
-            .config-title {{ display: none; }}
-            .config-location {{ display: none; }}
-            .config-text {{ background-color: #161B22; color: #58A6FF; padding: 16px; border-radius: 6px; border: 1px solid #21262D; white-space: pre-wrap; word-break: break-all; margin-bottom: 10px; font-size: 15px; font-weight: bold; line-height: 1.5; text-align: left; }}
-            .btn-copy-cfg {{ width: 100%; padding: 10px; background-color: #238636; color: #FFF; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; }}
-            .btn-copy-cfg:active {{ background-color: #2EA043; }}
+            .config-box { display: none; background-color: #0D1117; border: 1px solid #30363D; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-family: monospace; }
+            .config-box.open { display: block; }
+            .config-title { display: none; }
+            .config-location { display: none; }
+            .config-text { background-color: #161B22; color: #58A6FF; padding: 16px; border-radius: 6px; border: 1px solid #21262D; white-space: pre-wrap; word-break: break-all; margin-bottom: 10px; font-size: 15px; font-weight: bold; line-height: 1.5; text-align: left; }
+            .btn-copy-cfg { width: 100%; padding: 10px; background-color: #238636; color: #FFF; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; }
+            .btn-copy-cfg:active { background-color: #2EA043; }
 
-            .btn-copy {{ display: block; width: 100%; padding: 10px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; -webkit-appearance: none; }}
-            .btn-copy:active {{ background-color: #00E676; color: #000; }}
-            .loading {{ text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }}
+            .btn-copy { display: block; width: 100%; padding: 10px; background-color: #2A2A2E; color: #DDD; border: none; border-radius: 6px; text-align: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; -webkit-appearance: none; }
+            .btn-copy:active { background-color: #00E676; color: #000; }
+            .loading { text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }
 
             /* SA5 Permission & Letter Action Styles */
-            .sa5-action-container {{ background-color: #221212; border: 1px dashed #FF3B30; padding: 8px; border-radius: 6px; margin-bottom: 8px; }}
-            .sa5-title {{ color: #FF5252; font-size: 11px; font-weight: bold; margin-bottom: 6px; }}
-            .btn-permission {{ background-color: #E50914; color: #FFF; width: 100%; padding: 8px; font-size: 12px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 6px; text-align: center; text-decoration: none; display: block; }}
-            .btn-sub-action {{ background-color: #333; color: #DDD; width: 100%; padding: 6px; font-size: 11px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 4px; text-align: center; }}
+            .sa5-action-container { background-color: #221212; border: 1px dashed #FF3B30; padding: 8px; border-radius: 6px; margin-bottom: 8px; }
+            .sa5-title { color: #FF5252; font-size: 11px; font-weight: bold; margin-bottom: 6px; }
+            .btn-permission { background-color: #E50914; color: #FFF; width: 100%; padding: 8px; font-size: 12px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 6px; text-align: center; text-decoration: none; display: block; }
+            .btn-sub-action { background-color: #333; color: #DDD; width: 100%; padding: 6px; font-size: 11px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 4px; text-align: center; }
         </style>
     </head>
     <body>
@@ -843,81 +843,81 @@ def liff_page():
         </div>
 
         <script>
-            let categorizedData = {{}};
+            let categorizedData = {};
             let areaConfig = [];
             let totalCountAll = 0;
 
-            async function initLIFF() {{
+            async function initLIFF() {
                 loadSavedEmpId();
-                try {{
-                    const liffPromise = liff.init({{ liffId: "{LIFF_ID}" }});
+                try {
+                    const liffPromise = liff.init({ liffId: "{LIFF_ID}" });
                     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("LIFF Init Timeout")), 3000));
                     await Promise.race([liffPromise, timeoutPromise]);
-                }} catch (err) {{
+                } catch (err) {
                     console.warn("LIFF Init Fallback:", err);
-                }} finally {{
+                } finally {
                     fetchData();
-                }}
-            }}
+                }
+            }
 
-            function loadSavedEmpId() {{
+            function loadSavedEmpId() {
                 const saved = localStorage.getItem('TRUE_EMP_ID');
-                if (saved) {{
+                if (saved) {
                     document.getElementById('empIdInput').value = saved;
-                }} else {{
+                } else {
                     document.getElementById('empIdInput').value = 'VDWW2097';
-                }}
-            }}
+                }
+            }
 
-            function saveEmpId() {{
+            function saveEmpId() {
                 const val = document.getElementById('empIdInput').value.trim();
-                if (val) {{
+                if (val) {
                     localStorage.setItem('TRUE_EMP_ID', val);
-                }}
-            }}
+                }
+            }
 
-            async function fetchData() {{
-                try {{
+            async function fetchData() {
+                try {
                     const res = await fetch('/api/pending_data');
                     const json = await res.json();
-                    categorizedData = json.categorized || {{}};
+                    categorizedData = json.categorized || {};
                     areaConfig = json.area_config || [];
                     totalCountAll = json.total || 0;
                     
                     renderAccordion(categorizedData);
-                }} catch (e) {{
+                } catch (e) {
                     document.getElementById('accordionContainer').innerHTML = '<div style="color:#FF5252; text-align:center; padding:20px;">❌ ไม่สามารถโหลดข้อมูลได้</div>';
-                }}
-            }}
+                }
+            }
 
-            function getVal(item, keys) {{
-                for (let k of keys) {{
+            function getVal(item, keys) {
+                for (let k of keys) {
                     let foundKey = Object.keys(item).find(ik => ik.toLowerCase().trim() === k.toLowerCase().trim());
-                    if (foundKey && item[foundKey] && String(item[foundKey]).trim() !== '' && String(item[foundKey]).trim() !== '-') {{
+                    if (foundKey && item[foundKey] && String(item[foundKey]).trim() !== '' && String(item[foundKey]).trim() !== '-') {
                         return String(item[foundKey]).trim();
-                    }}
-                }}
+                    }
+                }
                 return null;
-            }}
+            }
 
-            function extractIpFromString(text) {{
+            function extractIpFromString(text) {
                 if (!text) return '-';
-                const match = text.match(/\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b/);
+                const match = text.match(/\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/);
                 return match ? match[0] : '-';
-            }}
+            }
 
-            function extractSiteName(item, subject) {{
+            function extractSiteName(item, subject) {
                 let rawText = subject + " " + JSON.stringify(item);
                 let siteKeywords = ['Central', 'Terminal', 'Emporium', 'EmQuartier', 'Siam', 'Paragon', 'IconSiam', 'Future', 'Mega', 'Seacon', 'Paradise', 'The Mall', 'True Digital Park', 'Hospital', 'อาคาร', 'The Street', 'Esplanade'];
-                for (let kw of siteKeywords) {{
+                for (let kw of siteKeywords) {
                     let regex = new RegExp('(' + kw + '[^,|-]*)', 'i');
                     let match = rawText.match(regex);
                     if (match) return match[1].trim();
-                }}
+                }
                 return "ฝ่ายอาคาร / ผู้จัดการอาคารสถานที่";
-            }}
+            }
             
-            function generateLetterImage(siteName, ticket) {{
+            function generateLetterImage(siteName, ticket) {
                 const canvas = document.createElement('canvas');
                 canvas.width = 800;
                 canvas.height = 1050;
@@ -933,17 +933,17 @@ def liff_page():
 
                 const now = new Date();
                 const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-                let dateStr = `${{now.getDate()}} ${{thaiMonths[now.getMonth()]}} ${{now.getFullYear() + 543}}`;
+                let dateStr = `${now.getDate()} ${thaiMonths[now.getMonth()]} ${now.getFullYear() + 543}`;
 
                 ctx.fillStyle = '#FFFFFF';
                 ctx.font = '16px sans-serif';
                 ctx.textAlign = 'right';
-                ctx.fillText(`วันที่ ${{dateStr}}`, 740, 110);
+                ctx.fillText(`วันที่ ${dateStr}`, 740, 110);
 
                 ctx.textAlign = 'left';
-                ctx.fillText(`ที่ RNSO-BMA/${{ticket}}`, 60, 150);
+                ctx.fillText(`ที่ RNSO-BMA/${ticket}`, 60, 150);
                 ctx.fillText('เรื่อง ขออนุญาตเข้าปฏิบัติงาน', 60, 190);
-                ctx.fillText(`เรียน ฝ่ายอาคาร (${{siteName}})`, 60, 240);
+                ctx.fillText(`เรียน ฝ่ายอาคาร (${siteName})`, 60, 240);
 
                 ctx.font = '15px sans-serif';
                 let bodyText = [
@@ -952,7 +952,7 @@ def liff_page():
                     'สัญญาณอินเทอร์เน็ตภายในอาคารนั้น ใคร่ขออนุญาตเข้าตรวจเช็คอุปกรณ์',
                     'อินเทอร์เน็ต SW WIFI / AP WIFI Down และขอเปิดห้องที่มีอุปกรณ์ภายในอาคาร',
                     '',
-                    `สถานที่ปฏิบัติงาน: ${{siteName}}`,
+                    `สถานที่ปฏิบัติงาน: ${siteName}`,
                     'กำหนดเข้าดำเนินการในรอบสัปดาห์นี้ เวลา 10:00 - 17:00 น.',
                     '',
                     'รายชื่อผู้เข้าปฏิบัติงาน:',
@@ -966,10 +966,10 @@ def liff_page():
                 ];
 
                 let startY = 290;
-                bodyText.forEach(line => {{
+                bodyText.forEach(line => {
                     ctx.fillText(line, 60, startY);
                     startY += 28;
-                }});
+                });
 
                 ctx.fillText('ขอแสดงความนับถือ', 60, startY + 40);
 
@@ -984,13 +984,13 @@ def liff_page():
 
                 modal.innerHTML = `
                     <div style="background:#1C1C1E; width:100%; max-width:450px; border-radius:12px; padding:15px; display:flex; flex-direction:column; align-items:center; border:1px solid #333; max-height:90vh;">
-                        <div style="color:#00E676; font-size:13px; font-weight:bold; margin-bottom:10px; text-align:center;">
-                            💡 กดปุ่มด้านล่างเพื่อบันทึกรูปภาพลงมือถือ
+                        <div style="color:#00E676; font-size:12px; font-weight:bold; margin-bottom:8px; text-align:center; line-height: 1.4;">
+                            💡 แนะนำ: <span style="color:#FFD700;">"กดค้างที่รูปภาพ"</span> หากปุ่มดาวน์โหลดไม่ทำงาน
                         </div>
                         <div style="overflow-y:auto; width:100%; max-height:55vh; margin-bottom:12px; text-align:center;">
-                            <img src="${{dataUrl}}" style="max-width:100%; height:auto; border-radius:6px; border:1px solid #444;" />
+                            <img src="${dataUrl}" style="max-width:100%; height:auto; border-radius:6px; border:1px solid #444;" />
                         </div>
-                        <a href="${{dataUrl}}" download="Permission_${{ticket}}.png" style="width:100%; padding:10px; background-color:#00E676; color:#000; border:none; border-radius:6px; font-weight:bold; font-size:14px; text-align:center; text-decoration:none; display:block; margin-bottom:8px;">
+                        <a href="${dataUrl}" download="Permission_${ticket}.png" style="width:100%; padding:10px; background-color:#00E676; color:#000; border:none; border-radius:6px; font-weight:bold; font-size:14px; text-align:center; text-decoration:none; display:block; margin-bottom:8px;">
                             📥 บันทึกรูปภาพลงเครื่อง
                         </a>
                         <button onclick="document.getElementById('letterModal').remove()" style="width:100%; padding:10px; background-color:#E50914; color:#FFF; border:none; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer;">
@@ -999,19 +999,19 @@ def liff_page():
                     </div>
                 `;
                 document.body.appendChild(modal);
-            }}
+            }
 
-            function copyTextToClipboard(text, onSuccess, onError) {{
-                if (navigator.clipboard && navigator.clipboard.writeText) {{
-                    navigator.clipboard.writeText(text).then(onSuccess).catch(() => {{
+            function copyTextToClipboard(text, onSuccess, onError) {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
                         fallbackCopyText(text, onSuccess, onError);
-                    }});
-                }} else {{
+                    });
+                } else {
                     fallbackCopyText(text, onSuccess, onError);
-                }}
-            }}
+                }
+            }
 
-            function fallbackCopyText(text, onSuccess, onError) {{
+            function fallbackCopyText(text, onSuccess, onError) {
                 const textArea = document.createElement("textarea");
                 textArea.value = text;
                 textArea.style.position = "fixed";
@@ -1021,21 +1021,21 @@ def liff_page():
                 document.body.appendChild(textArea);
                 textArea.focus();
                 textArea.select();
-                try {{
+                try {
                     const successful = document.execCommand('copy');
                     document.body.removeChild(textArea);
-                    if (successful) {{
+                    if (successful) {
                         if (onSuccess) onSuccess();
-                    }} else {{
+                    } else {
                         if (onError) onError(new Error('Copy failed'));
-                    }}
-                }} catch (err) {{
+                    }
+                } catch (err) {
                     document.body.removeChild(textArea);
                     if (onError) onError(err);
-                }}
-            }}
+                }
+            }
 
-            function buildCardHtml(item, index) {{
+            function buildCardHtml(item, index) {
                 let jsonStr = JSON.stringify(item).toLowerCase();
                 let isFemto = jsonStr.includes('femto');
                 
@@ -1043,9 +1043,9 @@ def liff_page():
                 let subject = getVal(item, ['SUBJECT', 'TITLE', 'DESCRIPTION', 'SUMMARY']) || '-';
                 
                 let ip = getVal(item, ['IP', 'IP_ADDRESS', 'IPADDRESS', 'HOST_IP', '_EXTRACTED_IP']);
-                if (!ip || ip === '-') {{
+                if (!ip || ip === '-') {
                     ip = extractIpFromString(subject !== '-' ? subject : jsonStr);
-                }}
+                }
 
                 let status = getVal(item, ['STATUS', 'Tech_Status', 'STATE']) || '-';
                 let severity = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '-';
@@ -1061,80 +1061,80 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ticketNoteText = `ขอเข้า permission (${{siteName}})\\nCSMC Accept:\\nรายละเอียดเพิ่มเติม:\\nขอเข้า permission`;
+                let ticketNoteText = `ขอเข้า permission (${siteName})\nCSMC Accept:\nรายละเอียดเพิ่มเติม:\nขอเข้า permission`;
                 let safeTicketNote = encodeURIComponent(ticketNoteText);
 
                 let isSa5 = severity.toUpperCase() === 'SA5';
                 let sa5ExtraHtml = '';
 
-                if (isSa5) {{
+                if (isSa5) {
                     sa5ExtraHtml = `
                     <div class="sa5-action-container">
-                        <div class="sa5-title">🚨 เมนูด่วนงาน SA5 (สถานที่: ${{siteName}})</div>
+                        <div class="sa5-title">🚨 เมนูด่วนงาน SA5 (สถานที่: ${siteName})</div>
                         <a href="https://csmcbot.truecorp.co.th/updatett/Login" target="_blank" class="btn-permission">🔗 เข้าสู่ระบบ Permission / CSMC</a>
-                        <button class="btn-sub-action" onclick="copySingleValue('${{safeTicketNote}}', 'ข้อความชี้แจง Ticket', this)">📝 คัดลอกข้อความชี้แจงสำหรับ Ticket</button>
-                        <button class="btn-sub-action" onclick="generateLetterImage('${{siteName}}', '${{ticket}}')" style="background-color:#00E676; color:#000;">📥 สร้าง & ดาวน์โหลดรูปจดหมายขออนุญาต</button>
+                        <button class="btn-sub-action" onclick="copySingleValue('${safeTicketNote}', 'ข้อความชี้แจง Ticket', this)">📝 คัดลอกข้อความชี้แจงสำหรับ Ticket</button>
+                        <button class="btn-sub-action" onclick="generateLetterImage('${siteName}', '${ticket}')" style="background-color:#00E676; color:#000;">📥 สร้าง & ดาวน์โหลดรูปจดหมายขออนุญาต</button>
                     </div>
                     `;
-                }}
+                }
 
-                let ipActionHtml = ip !== '-' ? '<div class="action-btn-group" style="margin-top: 6px; display: flex; gap: 6px; width: 100%;"><button class="btn-action btn-ping" style="flex: 1;" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button><button class="btn-action btn-cfg" style="flex: 1;" onclick="toggleApConfig(\\'' + ip + '\\', \\'' + cardId + '\\')">⚙️ ค้นหา ตำแหน่ง AP</button></div>' : '';
+                let ipActionHtml = ip !== '-' ? '<div class="action-btn-group" style="margin-top: 6px; display: flex; gap: 6px; width: 100%;"><button class="btn-action btn-ping" style="flex: 1;" onclick="runPingTest(\'' + ip + '\', \'' + cardId + '\')">⚡ Ping</button><button class="btn-action btn-cfg" style="flex: 1;" onclick="toggleApConfig(\'' + ip + '\', \'' + cardId + '\')">⚙️ ค้นหา ตำแหน่ง AP</button></div>' : '';
 
                 return `
-                <div class="card" id="${{cardId}}">
+                <div class="card" id="${cardId}">
                     <div class="card-header">
-                        <div class="ticket-badge clickable" onclick="copySingleValue('${{safeTicket}}', 'Ticket ID', this)" title="แตะเพื่อคัดลอก Ticket ID">
-                            🎫 ${{ticket}}
+                        <div class="ticket-badge clickable" onclick="copySingleValue('${safeTicket}', 'Ticket ID', this)" title="แตะเพื่อคัดลอก Ticket ID">
+                            🎫 ${ticket}
                         </div>
-                        <span class="type-badge ${{isFemto ? 'badge-femto' : 'badge-wifi'}}">${{isFemto ? 'Femto' : 'WiFi'}}</span>
+                        <span class="type-badge ${isFemto ? 'badge-femto' : 'badge-wifi'}">${isFemto ? 'Femto' : 'WiFi'}</span>
                     </div>
 
-                    ${{sa5ExtraHtml}}
+                    ${sa5ExtraHtml}
 
-                    <div class="subject-box clickable" onclick="copySingleValue('${{safeSubject}}', 'Subject', this)" title="แตะเพื่อคัดลอก Subject">
-                        ${{subject}}
+                    <div class="subject-box clickable" onclick="copySingleValue('${safeSubject}', 'Subject', this)" title="แตะเพื่อคัดลอก Subject">
+                        ${subject}
                     </div>
 
                     <div class="grid-container">
                         <div class="grid-item">
                             <span class="item-label">IP ADDRESS</span>
                             <div style="width: 100%;">
-                                <span class="item-val ip clickable" onclick="copySingleValue('${{safeIp}}', 'IP Address', this)" style="display: block;">${{ip}}</span>
-                                ${{ipActionHtml}}
+                                <span class="item-val ip clickable" onclick="copySingleValue('${safeIp}', 'IP Address', this)" style="display: block;">${ip}</span>
+                                ${ipActionHtml}
                             </div>
-                            <div id="ping-status-${{cardId}}"></div>
+                            <div id="ping-status-${cardId}"></div>
                             
                             <span class="item-label" style="margin-top: 8px;">SEVERITY</span>
-                            <span class="item-val severity">${{severity}}</span>
+                            <span class="item-val severity">${severity}</span>
                         </div>
 
                         <div class="grid-item right-align">
                             <span class="item-label">STATUS</span>
-                            <span class="item-val status">${{status}}</span>
+                            <span class="item-val status">${status}</span>
                             
                             <span class="item-label" style="margin-top: 8px;">CREATION DATE</span>
-                            <span class="item-val" style="font-size:11px; color:#AAA;">${{creationDate}}</span>
+                            <span class="item-val" style="font-size:11px; color:#AAA;">${creationDate}</span>
                         </div>
                     </div>
 
-                    <div class="config-box" id="config-box-${{cardId}}">
+                    <div class="config-box" id="config-box-${cardId}">
                         <div class="config-title">
                             <span>⚙️ CAPWAP CONFIG TEMPLATE</span>
-                            <span style="color:#888; font-size:9px;">IP: ${{ip}}</span>
+                            <span style="color:#888; font-size:9px;">IP: ${ip}</span>
                         </div>
-                        <div class="config-location" id="config-loc-${{cardId}}">
+                        <div class="config-location" id="config-loc-${cardId}">
                             ⏳ กำลังค้นหาข้อมูลสถานที่ซ่อมหน้างานจริง...
                         </div>
-                        <div class="config-text" id="config-text-${{cardId}}">กำลังสร้างชุดคำสั่ง AP...</div>
-                        <button class="btn-copy-cfg" id="btn-copy-cfg-${{cardId}}" onclick="copyConfigText('${{cardId}}')">📋 คัดลอกต่ำแหน่ง AP ทั้งหมด</button>
+                        <div class="config-text" id="config-text-${cardId}">กำลังสร้างชุดคำสั่ง AP...</div>
+                        <button class="btn-copy-cfg" id="btn-copy-cfg-${cardId}" onclick="copyConfigText('${cardId}')">📋 คัดลอกต่ำแหน่ง AP ทั้งหมด</button>
                     </div>
 
-                    <button class="btn-copy" onclick="copyToClipboard('${{safeCopyText}}', this)">📋 คัดลอกรายละเอียดทั้งหมด</button>
+                    <button class="btn-copy" onclick="copyToClipboard('${safeCopyText}', this)">📋 คัดลอกรายละเอียดทั้งหมด</button>
                 </div>
                 `;
-            }}        
+            }        
             
-            function renderAccordion(data) {{
+            function renderAccordion(data) {
                 const container = document.getElementById('accordionContainer');
                 container.className = "container";
                 container.innerHTML = '';
@@ -1142,17 +1142,17 @@ def liff_page():
                 let totalVisible = 0;
                 let sa5Items = [];
 
-                areaConfig.forEach(area => {{
+                areaConfig.forEach(area => {
                     let items = data[area.id] || [];
-                    items.forEach(item => {{
+                    items.forEach(item => {
                         let sev = getVal(item, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '';
-                        if (sev.toUpperCase() === 'SA5') {{
+                        if (sev.toUpperCase() === 'SA5') {
                             sa5Items.push(item);
-                        }}
-                    }});
-                }});
+                        }
+                    });
+                });
 
-                if (sa5Items.length > 0) {{
+                if (sa5Items.length > 0) {
                     let sa5Div = document.createElement('div');
                     sa5Div.className = 'area-group open';
                     sa5Div.id = 'area-group-sa5-special';
@@ -1163,18 +1163,18 @@ def liff_page():
                         <div class="area-header" onclick="toggleArea('sa5-special')" style="background-color: #3A1010; border-left: 4px solid #FF3B30;">
                             <span style="color: #FF5252; font-weight: bold;">🚨 SA5 (ต้องเคลียร์ ภายใน 24 ชั่วโมง)</span>
                             <div>
-                                <span class="area-badge" style="background-color: #FF3B30; color: #FFF;">${{sa5Items.length}}</span>
+                                <span class="area-badge" style="background-color: #FF3B30; color: #FFF;">${sa5Items.length}</span>
                                 <span class="arrow-icon">▼</span>
                             </div>
                         </div>
                         <div class="area-content" id="area-content-sa5-special">
-                            ${{sa5CardsHtml}}
+                            ${sa5CardsHtml}
                         </div>
                     `;
                     container.appendChild(sa5Div);
-                }}
+                }
 
-                areaConfig.forEach(area => {{
+                areaConfig.forEach(area => {
                     let items = data[area.id] || [];
                     totalVisible += items.length;
 
@@ -1189,161 +1189,162 @@ def liff_page():
                         : '<div style="text-align:center; padding:12px; color:#666; font-size:12px;">ไม่มีรายการงานค้างในเขตนี้</div>';
 
                     areaDiv.innerHTML = `
-                        <div class="area-header" onclick="toggleArea('${{area.id}}')">
-                            <span>${{area.name}}</span>
+                        <div class="area-header" onclick="toggleArea('${area.id}')">
+                            <span>${area.name}</span>
                             <div>
-                                <span class="area-badge ${{isZero ? 'zero' : ''}}">${{items.length}}</span>
+                                <span class="area-badge ${isZero ? 'zero' : ''}">${items.length}</span>
                                 <span class="arrow-icon">▼</span>
                             </div>
                         </div>
-                        <div class="area-content" id="area-content-${{area.id}}">
-                            ${{cardsHtml}}
+                        <div class="area-content" id="area-content-${area.id}">
+                            ${cardsHtml}
                         </div>
                     `;
 
                     container.appendChild(areaDiv);
-                }});
+                });
 
                 document.getElementById('countInfo').innerText = 'รวมทั้งหมด ' + totalVisible + ' รายการ';
-            }}
+            }
 
-            function toggleArea(areaId) {{
+            function toggleArea(areaId) {
                 const group = document.getElementById('area-group-' + areaId);
-                if (group) {{
+                if (group) {
                     group.classList.toggle('open');
-                }}
-            }}
+                }
+            }
 
-            async function runPingTest(ip, cardId) {{
+            async function runPingTest(ip, cardId) {
                 const statusBox = document.getElementById('ping-status-' + cardId);
                 const empId = document.getElementById('empIdInput').value.trim() || 'VDWW2097';
                 
                 statusBox.innerHTML = '<span class="ping-result-badge" style="color:#FF9100;">⏳ Ping...</span>';
 
-                try {{
-                    const res = await fetch('/api/ping_test', {{
+                try {
+                    const res = await fetch('/api/ping_test', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ ip: ip, emp_id: empId }})
-                    }});
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ip: ip, emp_id: empId })
+                    });
                     const data = await res.json();
 
-                    if (data.status === 'success') {{
+                    if (data.status === 'success') {
                         statusBox.innerHTML = '<span class="ping-result-badge ping-ok">🟢 ' + data.message + '</span>';
-                    }} else {{
+                    } else {
                         statusBox.innerHTML = '<span class="ping-result-badge ping-fail">🔴 ' + data.message + '</span>';
-                    }}
-                }} catch (e) {{
+                    }
+                } catch (e) {
                     statusBox.innerHTML = '<span class="ping-result-badge ping-fail">⚠️ Ping Error</span>';
-                }}
-            }}
+                }
+            }
 
-            async function toggleApConfig(ip, cardId) {{
+            async function toggleApConfig(ip, cardId) {
                 const configBox = document.getElementById('config-box-' + cardId);
                 const locBox = document.getElementById('config-loc-' + cardId);
                 const textBox = document.getElementById('config-text-' + cardId);
 
-                if (configBox.classList.contains('open')) {{
+                if (configBox.classList.contains('open')) {
                     configBox.classList.remove('open');
                     return;
-                }}
+                }
 
                 configBox.classList.add('open');
                 locBox.innerHTML = '⏳ กำลังดึงข้อมูลจาก pingap...';
                 textBox.innerText = 'กำลังดึง ตำแหน่งAP...';
 
-                try {{
-                    const res = await fetch('/api/get_ap_config', {{
+                try {
+                    const res = await fetch('/api/get_ap_config', {
                         method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ ip: ip }})
-                    }});
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ip: ip })
+                    });
                     const data = await res.json();
 
-                    if (data.status === 'success') {{
+                    if (data.status === 'success') {
                         locBox.innerHTML = '<strong>📍 สถานที่:</strong> ' + (data.site_name || '-') + ' <br><strong>🏠 ที่อยู่:</strong> ' + (data.address || '-');
                         textBox.innerText = data.capwap_config || 'ไม่พบ Config CAPWAP';
-                    }} else {{
+                    } else {
                         locBox.innerHTML = '❌ ไม่สามารถโหลดข้อมูลสถานที่ได้';
                         textBox.innerText = data.capwap_config || 'ไม่สามารถค้นหา Config ได้';
-                    }}
-                }} catch (e) {{
+                    }
+                } catch (e) {
                     locBox.innerHTML = '⚠️ เกิดข้อผิดพลาดทางเครือข่าย';
                     textBox.innerText = 'Error loading config';
-                }}
-            }}
+                }
+            }
 
-            function copyConfigText(cardId) {{
+            function copyConfigText(cardId) {
                 const text = document.getElementById('config-text-' + cardId).innerText;
                 const btn = document.getElementById('btn-copy-cfg-' + cardId);
-                copyTextToClipboard(text, () => {{
+                copyTextToClipboard(text, () => {
                     let oldText = btn.innerText;
                     btn.innerText = '✅ คัดลอก Config เรียบร้อย!';
                     setTimeout(() => btn.innerText = oldText, 2000);
-                }}, () => {{
+                }, () => {
                     alert('ไม่สามารถคัดลอกข้อความได้');
-                }});
-            }}
+                });
+            }
 
-            function copySingleValue(encodedValue, label, element) {{
+            function copySingleValue(encodedValue, label, element) {
                 const value = decodeURIComponent(encodedValue);
-                copyTextToClipboard(value, () => {{
+                copyTextToClipboard(value, () => {
                     let originalText = element.innerText;
                     element.innerText = '✅ คัดลอกแล้ว';
                     setTimeout(() => element.innerText = originalText, 1500);
-                }}, () => {{
+                }, () => {
                     alert('ไม่สามารถคัดลอกข้อความได้');
-                }});
-            }}
+                });
+            }
 
-            function copyToClipboard(encodedText, btnElement) {{
+            function copyToClipboard(encodedText, btnElement) {
                 const text = decodeURIComponent(encodedText);
-                copyTextToClipboard(text, () => {{
+                copyTextToClipboard(text, () => {
                     let oldText = btnElement.innerText;
                     btnElement.innerText = '✅ คัดลอกรายละเอียดแล้ว!';
                     btnElement.style.backgroundColor = '#00E676';
                     btnElement.style.color = '#000';
-                    setTimeout(() => {{
+                    setTimeout(() => {
                         btnElement.innerText = oldText;
                         btnElement.style.backgroundColor = '#2A2A2E';
                         btnElement.style.color = '#DDD';
-                    }}, 2000);
-                }}, () => {{
+                    }, 2000);
+                }, () => {
                     alert('ไม่สามารถคัดลอกข้อความได้');
-                }});
-            }}
+                });
+            }
 
-            function filterData() {{
+            function filterData() {
                 const query = document.getElementById('searchInput').value.toLowerCase().trim();
-                if (!query) {{
+                if (!query) {
                     renderAccordion(categorizedData);
                     return;
-                }}
+                }
 
-                let filteredCategorized = {{}};
-                areaConfig.forEach(area => {{
+                let filteredCategorized = {};
+                areaConfig.forEach(area => {
                     let items = categorizedData[area.id] || [];
-                    filteredCategorized[area.id] = items.filter(item => {{
+                    filteredCategorized[area.id] = items.filter(item => {
                         let str = JSON.stringify(item).toLowerCase();
                         return str.includes(query);
-                    }});
-                }});
+                    });
+                });
 
                 renderAccordion(filteredCategorized);
 
-                areaConfig.forEach(area => {{
-                    if ((filteredCategorized[area.id] || []).length > 0) {{
+.areaConfig.forEach(area => {
+                    if ((filteredCategorized[area.id] || []).length > 0) {
                         const group = document.getElementById('area-group-' + area.id);
                         if (group) group.classList.add('open');
-                    }}
-                }});
-            }}
+                    }
+                });
+            }
 
             window.onload = initLIFF;
         </script>
     </body>
     </html>
     """
+    html_content = html_content.replace("{LIFF_ID}", LIFF_ID)
     return HTMLResponse(content=html_content)
 
 if __name__ == "__main__":
