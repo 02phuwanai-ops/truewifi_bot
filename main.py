@@ -1331,13 +1331,12 @@ def liff_page():
 
                 renderAccordion(filteredCategorized);
 
-.areaConfig.forEach(area => {
+                areaConfig.forEach(area => {
                     if ((filteredCategorized[area.id] || []).length > 0) {
                         const group = document.getElementById('area-group-' + area.id);
                         if (group) group.classList.add('open');
                     }
                 });
-            }
 
             window.onload = initLIFF;
         </script>
