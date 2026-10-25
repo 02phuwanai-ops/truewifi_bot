@@ -738,7 +738,7 @@ async def get_ap_config_api(req: ConfigRequest):
 
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
-    html_content = """
+    html_content = r"""
     <!DOCTYPE html>
     <html lang="th">
     <head>
@@ -1061,7 +1061,7 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ticketNoteText = `ขอเข้า permission (${siteName})\nCSMC Accept:\nรายละเอียดเพิ่มเติม:\nขอเข้า permission`;
+                let ticketNoteText = `ขอเข้า permission (${siteName})\\nCSMC Accept:\\nรายละเอียดเพิ่มเติม:\\nขอเข้า permission`;
                 let safeTicketNote = encodeURIComponent(ticketNoteText);
 
                 let isSa5 = severity.toUpperCase() === 'SA5';
@@ -1337,6 +1337,7 @@ def liff_page():
                         if (group) group.classList.add('open');
                     }
                 });
+            }
 
             window.onload = initLIFF;
         </script>
