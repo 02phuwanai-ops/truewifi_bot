@@ -214,16 +214,39 @@ def is_valid_bcode_row(row_str):
             return True
     return False
 
+def is_valid_row(row_str):
+    """ตรวจสอบว่าแถวข้อมูลดิบมีความสมบูรณ์ ไม่ถูกตัดทอนหรือเป็นขยะต่อกันยาว"""
+    r = row_str.strip()
+    if not r:
+        return False
+    
+    # ต้องมีรูปแบบเลข INC ที่ถูกต้อง (เช่น INC ตามด้วยตัวเลข)
+    if not re.search(r'INC\d{10,}', r):
+        return False
+        
+    # ป้องกันแถวที่ข้อมูลเสียหาย/ถูกตัดทอนกลางคัน (เช่น ไม่มีสถานะงาน หรือขาดคีย์เวิร์ดสำคัญ)
+    valid_statuses = ['in progress', 'assigned', 'pending', 'resolved', 'closed']
+    has_status = any(st in r.lower() for st in valid_statuses)
+    
+    if not has_status:
+        return False
+        
+    return True
+
 def get_processed_data():
     df, source = get_raw_df()
     if df is None:
         return None, source, {}
 
+    # แปลงทุกคอลัมน์เป็นข้อความรวมกันเพื่อเช็คเงื่อนไข
     full_row_str = df.apply(lambda row: ' '.join(row), axis=1)
+    
+    # กรองเฉพาะแถวที่ผ่านเกณฑ์ (มี INC, มีสถานะครบ และไม่ถูกตัดพัง)
+    valid_mask = full_row_str.apply(is_valid_row)
     wifi_mask = full_row_str.apply(is_wifi_or_femto_row)
     bcode_mask = full_row_str.apply(is_valid_bcode_row)
     
-    filtered_df = df[wifi_mask & bcode_mask].copy()
+    filtered_df = df[valid_mask & wifi_mask & bcode_mask].copy()
     categorized = {area["id"]: [] for area in AREA_CONFIG}
     records = filtered_df.to_dict(orient="records")
 
