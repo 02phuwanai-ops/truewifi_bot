@@ -15,8 +15,46 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from playwright.async_api import async_playwright
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+# =========================================================================
+# Persistent Browser & Lifespan Management (Login ครั้งเดียวใช้งานยาวๆ)
+# =========================================================================
+playwright_instance = None
+persistent_browser = None
+persistent_context = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global playwright_instance, persistent_browser, persistent_context
+    print("🚀 กำลังเริ่มต้นระบบเบราว์เซอร์ค้างไว้ (Persistent Session)...")
+    playwright_instance = await async_playwright().start()
+    persistent_browser = await playwright_instance.chromium.launch(
+        headless=True,
+        args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    )
+    persistent_context = await persistent_browser.new_context(user_agent=USER_AGENT)
+    
+    # ทำการล็อกอินครั้งแรกเตรียมไว้เลยตอนเปิด Server[cite: 17]
+    page = await persistent_context.new_page()
+    try:
+        await page.goto(PINGAP_BASE_URL, wait_until="domcontentloaded", timeout=30000)
+        await login_if_needed(page)
+        print("✅ ล็อกอินเตรียมพร้อมใช้งานเรียบร้อย (พร้อมเทสต่อเนื่องทันที)!")[cite: 17]
+    except Exception as e:
+        print(f"⚠️ ล็อกอินเริ่มต้นไม่สำเร็จ: {e}")
+    finally:
+        await page.close()
+        
+    yield
+    
+    if persistent_browser:
+        await persistent_browser.close()
+    if playwright_instance:
+        await playwright_instance.stop()
+    print("🛑 ปิดระบบเบราว์เซอร์เรียบร้อย")
+
+app = FastAPI(lifespan=lifespan)
 
 # =========================================================================
 # 1. Health Check Endpoint
@@ -430,280 +468,282 @@ def get_pending_data_api():
 
 @app.post("/api/ping_test")
 async def ping_test_api(req: PingRequest):
-    browser = None
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-            )
-            context = await browser.new_context(user_agent=USER_AGENT)
-            page = await context.new_page()
+    global persistent_context
+    if not persistent_context:
+        return {"status": "fail", "message": "Ping Time Out"}
 
-            # 1. เข้าหน้าเว็บหลักและ Login (เหมือนหน้า Config)
-            await page.goto(
-                PINGAP_BASE_URL,
-                wait_until="domcontentloaded",
-                timeout=30000
-            )
-            
+    page = None
+    try:
+        # เปิดแท็บใหม่ในเบราว์เซอร์ตัวเดิม (ใช้ Session เดิมทันที ไม่ต้องล็อกอินใหม่)[cite: 17]
+        page = await persistent_context.new_page()
+
+        target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=2b307fe0b98f1c24d0b5b7908"
+        await page.goto(
+            target_url,
+            wait_until="domcontentloaded",
+            timeout=30000
+        )
+
+        # เช็คกรณีเซสชันหลุด/หมดอายุ ถ้าเด้งหน้า Login ให้ Login ใหม่อัตโนมัติ[cite: 17]
+        if await page.locator("input[name='username'], input#username, input[type='password']").count() > 0 or "login" in page.url.lower():
+            print("🔄 ตรวจพบว่าเซสชันหมดอายุ กำลังล็อกอินใหม่ให้อัตโนมัติ...")
             login_ok = await login_if_needed(page)
             if not login_ok:
-                await browser.close()
-                return {"status": "error", "message": "test false."}
+                await page.close()
+                return {"status": "fail", "message": "Ping Time Out"}
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-            # 2. วิ่งไปที่หน้า Test ของ PingAP
-            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=2b307fe0b98f1c24d0b5b7908"
-            await page.goto(
-                target_url,
-                wait_until="domcontentloaded",
-                timeout=30000
-            )
-
-            # ค้นหาฟอร์มและ iframe (ป้องกันเคสอยู่ในกรอบ iframe เหมือนหน้า Config)
-            form_target = page
-            target_frame = None
-            if await page.locator("input[name='ip'], input#APIP").count() == 0:
-                for frame in page.frames:
-                    try:
-                        if await frame.locator("input[name='ip'], input#APIP").count() > 0:
-                            target_frame = frame
-                            form_target = frame
-                            break
-                    except Exception:
-                        continue
-
-            # กรอก Employee ID และ IP Address
-            emp_input = form_target.locator("input[name='emp_id'], input#emp_id")
-            if await emp_input.count() > 0:
-                await emp_input.fill(req.emp_id)
-
-            ip_input = form_target.locator("input[name='ip'], input#APIP, input[name='APIP']")
-            if await ip_input.count() > 0:
-                await ip_input.fill(req.ip)
-
-            await asyncio.sleep(1.0)
-
-            # กดปุ่ม Submit เพื่อเริ่มรัน Test
-            submit_btn = form_target.locator("input[type='submit'], button[type='submit'], #SubmitButton")
-            html_content = ""
-            
-            if await submit_btn.count() > 0:
+        # ค้นหาฟอร์มและ iframe
+        form_target = page
+        if await page.locator("input[type='text']").count() == 0:
+            for frame in page.frames:
                 try:
-                    async with page.expect_response(
-                        lambda r: r.request.method.upper() == "POST" and "/wifi/index.asp" in r.url,
-                        timeout=20000
-                    ) as response_info:
-                        await submit_btn.first.click()
-                    response = await response_info.value
-                    html_content = await response.text()
+                    if await frame.locator("input[type='text']").count() > 0:
+                        form_target = frame
+                        break
                 except Exception:
-                    html_content = await page.content()
-            else:
-                await asyncio.sleep(2.0)
-                html_content = await page.content()
+                    continue
 
-            await browser.close()
+        # กรอก Employee ID
+        emp_input = form_target.locator("input[name='emp_id'], input#emp_id, tr:has-text('Employee ID') input[type='text']")
+        if await emp_input.count() > 0:
+            await emp_input.first.fill(req.emp_id)
 
-            # ตรวจสอบคำตอบจากหน้าเว็บ (ปรับปรุงเงื่อนไขให้รองรับ "ping test ok" จากหน้าเว็บจริง)
-            html_lower = html_content.lower()
-            
-            # เช็คเคสพัง / Time Out ก่อน
-            if any(k in html_lower for k in ["ping fail", "request timed out", "unreachable", "test false", "time out", "ping time out"]):
-                return {"status": "fail", "message": "test false."}
-            
-            # เช็คเคสสำเร็จ (เพิ่ม "ping test ok" เข้าไปรองรับหน้าเว็บจริง)
-            elif any(k in html_lower for k in ["ping test ok", "ping ok", "reply from", "bytes=", "test ok"]):
-                return {"status": "success", "message": "Test OK"}
-            else:
-                return {"status": "fail", "message": "test false."}
+        # กรอก IP Address ใหม่
+        ip_input = form_target.locator("input[name='ip'], input#APIP, input[name='APIP'], tr:has-text('AP IP Address') input[type='text']")
+        if await ip_input.count() > 0:
+            await ip_input.first.fill("")
+            await ip_input.first.fill(req.ip)
 
-    except Exception as e:
-        if browser:
+        # คลิกเลือก Radio Button "Switch"
+        switch_radio = form_target.locator("input[type='radio'][value='Switch'], input[value='Switch']")
+        if await switch_radio.count() > 0:
+            await switch_radio.first.click()
+
+        await asyncio.sleep(0.5)
+
+        # คลิกปุ่ม Submit
+        submit_btn = form_target.locator("input[type='submit'], button[type='submit'], #SubmitButton, input[value='Submit']")
+        
+        if await submit_btn.count() > 0:
+            await submit_btn.first.click()
+        else:
+            await ip_input.press("Enter")
+
+        # ⏳ ดึงข้อความสถานะจริงจากหน้าเว็บ (เช่น "Ping Test OK" หรือ "Ping Time Out")
+        actual_message = "Ping Time Out"
+        is_success = False
+        
+        try:
+            result_locator = form_target.locator("text=/Ping Test OK|Ping Time Out|Ping Fail|Net Expert Test OK|Time Out/i")
+            await result_locator.first.wait_for(timeout=15000)
+            text_found = await result_locator.first.inner_text()
+            if text_found:
+                actual_message = text_found.split('\n')[0].strip()
+        except Exception:
+            pass
+
+        html_content = await page.content()
+        for frame in page.frames:
             try:
-                await browser.close()
+                html_content += "\n" + await frame.content()
             except Exception:
                 pass
-        print(f"❌ Ping Test Error: {str(e)}")
-        return {"status": "error", "message": "test false."}
+
+        await page.close()
+
+        html_lower = html_content.lower()
+        
+        if "ping test ok" in html_lower or "net expert test ok" in html_lower or "ok" in actual_message.lower():
+            if not ("time out" in actual_message.lower() or "fail" in actual_message.lower()):
+                if "ok" not in actual_message.lower():
+                    actual_message = "Ping Test OK"
+                is_success = True
+            else:
+                is_success = False
+        else:
+            if "time out" not in actual_message.lower() and "fail" not in actual_message.lower():
+                actual_message = "Ping Time Out"
+            is_success = False
+
+        return {
+            "status": "success" if is_success else "fail",
+            "message": actual_message
+        }
+
+    except Exception as e:
+        if page:
+            try:
+                await page.close()
+            except Exception:
+                pass
+        return {"status": "fail", "message": "Ping Time Out"}
 
 @app.post("/api/get_ap_config")
 async def get_ap_config_api(req: ConfigRequest):
-    browser = None
+    global persistent_context
+    if not persistent_context:
+        return {
+            "status": "error",
+            "message": "Persistent browser not initialized",
+            "capwap_config": "ระบบเบราว์เซอร์ยังไม่พร้อมใช้งาน",
+            "address": "-"
+        }
+
+    page = None
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-            )
-            context = await browser.new_context(user_agent=USER_AGENT)
-            page = await context.new_page()
+        page = await persistent_context.new_page()
 
-            await page.goto(
-                PINGAP_BASE_URL,
-                wait_until="domcontentloaded",
-                timeout=30000
-            )
+        target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
+        await page.goto(
+            target_url,
+            wait_until="domcontentloaded",
+            timeout=30000
+        )
 
-            login_ok = await login_if_needed(page)
+        if await page.locator("input[name='username'], input#username, input[type='password']").count() > 0 or "login" in page.url.lower():
+            await login_if_needed(page)
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
 
-            if not login_ok:
-                await browser.close()
-                return {
-                    "status": "error",
-                    "ip": req.ip,
-                    "site_name": "-",
-                    "address": "-",
-                    "capwap_config": "PingAP Login ไม่สำเร็จ",
-                    "message": "ไม่สามารถ Login PingAP ด้วยระบบ HR ได้"
-                }
+        try:
+            await page.wait_for_selector("#APIP", state="attached", timeout=15000)
+        except Exception:
+            pass
 
-            target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=ba7fe0b0898f1c22b307fe0bw"
-            await page.goto(
-                target_url,
-                wait_until="domcontentloaded",
-                timeout=30000
-            )
-
-            try:
-                await page.wait_for_selector("#APIP", state="attached", timeout=15000)
-            except Exception:
-                pass
-
-            form_target = page
-            target_frame = None
-            if await page.locator("#APIP").count() == 0:
-                for frame in page.frames:
-                    try:
-                        if await frame.locator("#APIP").count() > 0:
-                            target_frame = frame
-                            form_target = frame
-                            break
-                    except Exception:
-                        continue
-
-            if await form_target.locator("#APIP").count() == 0:
-                await browser.close()
-                return {
-                    "status": "error",
-                    "ip": req.ip,
-                    "site_name": "-",
-                    "address": "-",
-                    "capwap_config": "ไม่พบฟอร์ม AP Config (#APIP) ใน PingAP",
-                    "message": "AP Config page loaded but #APIP was not found"
-                }
-
-            await form_target.locator("#APIP").fill(req.ip)
-
-            model = form_target.locator("#Model_AP")
-            if await model.count() > 0:
+        form_target = page
+        target_frame = None
+        if await page.locator("#APIP").count() == 0:
+            for frame in page.frames:
                 try:
-                    await model.select_option(label="Cisco 18XX,28XX,911X")
+                    if await frame.locator("#APIP").count() > 0:
+                        target_frame = frame
+                        form_target = frame
+                        break
                 except Exception:
-                    options = await model.locator("option").all_text_contents()
-                    for idx, text in enumerate(options):
-                        if "18XX" in text:
-                            await model.select_option(index=idx)
-                            break
+                    continue
 
-            html_content = ""
-            try:
-                async with page.expect_response(
-                    lambda r: (
-                        r.request.method.upper() == "POST"
-                        and "/wifi/index.asp" in r.url
-                    ),
-                    timeout=20000
-                ) as response_info:
-                    await form_target.locator("#SubmitButton").click()
-
-                response = await response_info.value
-                try:
-                    html_content = await response.text()
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-            if not html_content:
-                try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception:
-                    pass
-                await asyncio.sleep(2.0)
-                html_content = await page.content()
-
-            soup = BeautifulSoup(html_content, "html.parser")
-            site_name = "-"
-            address_text = "-"
-
-            for row in soup.find_all("tr"):
-                row_text = row.get_text(" ", strip=True)
-                row_upper = row_text.upper()
-
-                if site_name == "-" and "SITE_NAME" in row_upper:
-                    inp = row.find("input")
-                    if inp and inp.get("value"):
-                        site_name = inp.get("value").strip()
-
-                if address_text == "-" and "ADDRESS" in row_upper:
-                    txt = row.find("textarea")
-                    if txt:
-                        address_text = txt.get_text(" ", strip=True)
-                        if not address_text:
-                            address_text = str(txt.get("value", "")).strip()
-
-            if site_name == "-":
-                for inp in soup.find_all("input"):
-                    ident = str(inp.get("id", ""))
-                    name = str(inp.get("name", ""))
-                    if "SITE_NAME" in ident.upper() or "SITE_NAME" in name.upper():
-                        if inp.get("value"):
-                            site_name = inp.get("value").strip()
-                            break
-
-            if address_text == "-":
-                for txt in soup.find_all("textarea"):
-                    ident = str(txt.get("id", ""))
-                    name = str(txt.get("name", ""))
-                    cls = " ".join(txt.get("class", []))
-                    if (
-                        "ADDRESS" in ident.upper()
-                        or "ADDRESS" in name.upper()
-                        or "RESULTTEXTAREA" in cls.upper()
-                    ):
-                        address_text = txt.get_text(" ", strip=True)
-                        if not address_text:
-                            address_text = str(txt.get("value", "")).strip()
-                        if address_text:
-                            break
-
-            if address_text and address_text != "-":
-                address_text = re.sub(r"\s+", " ", address_text).strip()
-                if "@" in address_text:
-                    address_text = address_text.split("@", 1)[0].strip()
-
-            capwap_lines = []
-            for line in soup.get_text().splitlines():
-                line_str = line.strip()
-                if "capwap" in line_str.lower():
-                    capwap_lines.append(line_str)
-            capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
-
-            await browser.close()
+        if await form_target.locator("#APIP").count() == 0:
+            await page.close()
             return {
-                "status": "success" if address_text != "-" else "error",
+                "status": "error",
                 "ip": req.ip,
-                "site_name": site_name,
-                "address": address_text,
-                "capwap_config": address_text if address_text != "-" else capwap_config,
-                "message": "OK" if address_text != "-" else "ไม่พบ ADDRESS ในผลลัพธ์ PingAP"
+                "site_name": "-",
+                "address": "-",
+                "capwap_config": "ไม่พบฟอร์ม AP Config (#APIP) ใน PingAP",
+                "message": "AP Config page loaded but #APIP was not found"
             }
 
-    except Exception as e:
-        if browser:
+        await form_target.locator("#APIP").fill(req.ip)
+
+        model = form_target.locator("#Model_AP")
+        if await model.count() > 0:
             try:
-                await browser.close()
+                await model.select_option(label="Cisco 18XX,28XX,911X")
+            except Exception:
+                options = await model.locator("option").all_text_contents()
+                for idx, text in enumerate(options):
+                    if "18XX" in text:
+                        await model.select_option(index=idx)
+                        break
+
+        html_content = ""
+        try:
+            async with page.expect_response(
+                lambda r: (
+                    r.request.method.upper() == "POST"
+                    and "/wifi/index.asp" in r.url
+                ),
+                timeout=20000
+            ) as response_info:
+                await form_target.locator("#SubmitButton").click()
+
+            response = await response_info.value
+            try:
+                html_content = await response.text()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        if not html_content:
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=10000)
+            except Exception:
+                pass
+            await asyncio.sleep(2.0)
+            html_content = await page.content()
+
+        soup = BeautifulSoup(html_content, "html.parser")
+        site_name = "-"
+        address_text = "-"
+
+        for row in soup.find_all("tr"):
+            row_text = row.get_text(" ", strip=True)
+            row_upper = row_text.upper()
+
+            if site_name == "-" and "SITE_NAME" in row_upper:
+                inp = row.find("input")
+                if inp and inp.get("value"):
+                    site_name = inp.get("value").strip()
+
+            if address_text == "-" and "ADDRESS" in row_upper:
+                txt = row.find("textarea")
+                if txt:
+                    address_text = txt.get_text(" ", strip=True)
+                    if not address_text:
+                        address_text = str(txt.get("value", "")).strip()
+
+        if site_name == "-":
+            for inp in soup.find_all("input"):
+                ident = str(inp.get("id", ""))
+                name = str(inp.get("name", ""))
+                if "SITE_NAME" in ident.upper() or "SITE_NAME" in name.upper():
+                    if inp.get("value"):
+                        site_name = inp.get("value").strip()
+                        break
+
+        if address_text == "-":
+            for txt in soup.find_all("textarea"):
+                ident = str(txt.get("id", ""))
+                name = str(txt.get("name", ""))
+                cls = " ".join(txt.get("class", []))
+                if (
+                    "ADDRESS" in ident.upper()
+                    or "ADDRESS" in name.upper()
+                    or "RESULTTEXTAREA" in cls.upper()
+                ):
+                    address_text = txt.get_text(" ", strip=True)
+                    if not address_text:
+                        address_text = str(txt.get("value", "")).strip()
+                    if address_text:
+                        break
+
+        if address_text and address_text != "-":
+            address_text = re.sub(r"\s+", " ", address_text).strip()
+            if "@" in address_text:
+                address_text = address_text.split("@", 1)[0].strip()
+
+        capwap_lines = []
+        for line in soup.get_text().splitlines():
+            line_str = line.strip()
+            if "capwap" in line_str.lower():
+                capwap_lines.append(line_str)
+        capwap_config = "\n".join(capwap_lines) if capwap_lines else "ไม่พบ Config CAPWAP"
+
+        await page.close()
+        return {
+            "status": "success" if address_text != "-" else "error",
+            "ip": req.ip,
+            "site_name": site_name,
+            "address": address_text,
+            "capwap_config": address_text if address_text != "-" else capwap_config,
+            "message": "OK" if address_text != "-" else "ไม่พบ ADDRESS ในผลลัพธ์ PingAP"
+        }
+
+    except Exception as e:
+        if page:
+            try:
+                await page.close()
             except Exception:
                 pass
         return {
@@ -798,7 +838,6 @@ def liff_page():
             .btn-copy:active {{ background-color: #00E676; color: #000; }}
             .loading {{ text-align: center; padding: 40px 20px; color: #888; font-size: 14px; }}
 
-            /* SA5 Permission & Letter Action Styles */
             .sa5-action-container {{ background-color: #221212; border: 1px dashed #FF3B30; padding: 8px; border-radius: 6px; margin-bottom: 8px; }}
             .sa5-title {{ color: #FF5252; font-size: 11px; font-weight: bold; margin-bottom: 6px; }}
             .btn-permission {{ background-color: #E50914; color: #FFF; width: 100%; padding: 8px; font-size: 12px; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 6px; text-align: center; text-decoration: none; display: block; }}
