@@ -1181,8 +1181,14 @@ def liff_page():
                             if (configData.status === 'success' && configData.address && configData.address !== '-') {{
                                 let siteDesc = configData.site_name && configData.site_name !== '-' ? configData.site_name : '';
                                 let addressDesc = configData.address;
-                                finalSub = `TRUEWIFI | ${{ip}} | ${{siteDesc}} | ${{addressDesc}}`.replace(/\\s+/g, ' ').trim();
+                                
+                                // ปรับแก้: ตัด TRUEWIFI และ IP ออก ให้แสดงเฉพาะชื่อสถานที่และตำแหน่ง AP
+                                let parts = [];
+                                if (siteDesc) parts.push(siteDesc);
+                                if (addressDesc) parts.push(addressDesc);
+                                finalSub = parts.join(' | ').replace(/\\s+/g, ' ').trim();
                             }}
+                            
                         }} catch (err) {{
                             console.warn("ไม่สามารถดึงตำแหน่ง AP ของไอพี " + ip, err);
                         }}
