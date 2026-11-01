@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import asyncio
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -35,12 +36,12 @@ async def lifespan(app: FastAPI):
     )
     persistent_context = await persistent_browser.new_context(user_agent=USER_AGENT)
     
-    # ทำการล็อกอินครั้งแรกเตรียมไว้เลยตอนเปิด Server[cite: 17]
+    # ทำการล็อกอินครั้งแรกเตรียมไว้เลยตอนเปิด Server
     page = await persistent_context.new_page()
     try:
         await page.goto(PINGAP_BASE_URL, wait_until="domcontentloaded", timeout=30000)
         await login_if_needed(page)
-        print("✅ ล็อกอินเตรียมพร้อมใช้งานเรียบร้อย (พร้อมเทสต่อเนื่องทันที)!")[cite: 17]
+        print("✅ ล็อกอินเตรียมพร้อมใช้งานเรียบร้อย (พร้อมเทสต่อเนื่องทันที)!")
     except Exception as e:
         print(f"⚠️ ล็อกอินเริ่มต้นไม่สำเร็จ: {e}")
     finally:
@@ -85,7 +86,13 @@ AREA_CONFIG = [
     {
         "id": "area1", 
         "name": "1. พระโขนง", 
-        "keywords": ['B113', 'พระโขนง', 'บางจาก', 'True Digital Park']
+        "keywords": [
+            'B113', 'พระโขนง', 'บางจาก', 'True Digital Park',
+            'NKHG-1ROETZ', 'I53089B', 'I84444B', 'I82743B', 
+            'NKHG-23PFG9', 'I54112B', 'I53944B', 'I84438B', 
+            'I90389B', 'S10878', 'I90341B', 'I53922B', 
+            'I01736B', 'I50211B'
+        ]
     },
     {
         "id": "area2", 
@@ -95,17 +102,21 @@ AREA_CONFIG = [
     {
         "id": "area3", 
         "name": "3. วัฒนา", 
-        "keywords": ['B112', 'วัฒนา', 'คลองตันเหนือ', 'Samitivej', 'Terminal 21']
+        "keywords": [
+            'B112', 'วัฒนา', 'คลองตันเหนือ', 'Samitivej', 'Terminal 21',
+            'I02457B', 'I81112B', 'I81627B', 'I53974B', 
+            'I90336B', 'I53142B', 'NKHG-2AP7VL', 'I80696B', 'I51315B'
+        ]
     },
     {
         "id": "area4", 
         "name": "4. ห้วยขวาง", 
         "keywords": [
-            'I04964B', 'I80780B''I06217B', 
+            'I04964B', 'I80780B', 'I06217B', 'I81037B', 'I53950B',
             'ห้วยขวาง', 'Grand Rama 9', 'Grand Rama9', 
             'Central Plaza Grand Rama 9', 'Bangkok Hospital Research Center',
             'พระราม 9', 'พระราม๙', 'พระราม9', 
-            'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม'
+            'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม',
             'เมืองไทย ภัทร', 'muang thai phatra'
         ],
         "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน'] 
@@ -474,7 +485,7 @@ async def ping_test_api(req: PingRequest):
 
     page = None
     try:
-        # เปิดแท็บใหม่ในเบราว์เซอร์ตัวเดิม (ใช้ Session เดิมทันที ไม่ต้องล็อกอินใหม่)[cite: 17]
+        # เปิดแท็บใหม่ในเบราว์เซอร์ตัวเดิม (ใช้ Session เดิมทันที ไม่ต้องล็อกอินใหม่)
         page = await persistent_context.new_page()
 
         target_url = f"{PINGAP_BASE_URL}/wifi/index.asp?m=2b307fe0b98f1c24d0b5b7908"
@@ -484,7 +495,7 @@ async def ping_test_api(req: PingRequest):
             timeout=30000
         )
 
-        # เช็คกรณีเซสชันหลุด/หมดอายุ ถ้าเด้งหน้า Login ให้ Login ใหม่อัตโนมัติ[cite: 17]
+        # เช็คกรณีเซสชันหลุด/หมดอายุ ถ้าเด้งหน้า Login ให้ Login ใหม่อัตโนมัติ
         if await page.locator("input[name='username'], input#username, input[type='password']").count() > 0 or "login" in page.url.lower():
             print("🔄 ตรวจพบว่าเซสชันหมดอายุ กำลังล็อกอินใหม่ให้อัตโนมัติ...")
             login_ok = await login_if_needed(page)
@@ -753,6 +764,30 @@ async def get_ap_config_api(req: ConfigRequest):
             "address": "-"
         }
 
+# --- API สำหรับดึงลิงก์แปลนสถานที่จาก ap_locations.json ---
+AP_LOCATIONS_FILE = "ap_locations.json"
+
+@app.get("/api/get_ap_location")
+def get_ap_location(q: str):
+    if not os.path.exists(AP_LOCATIONS_FILE):
+        return JSONResponse(status_code=404, content={"status": "error", "message": "ยังไม่ได้สร้างไฟล์ ap_locations.json"})
+    
+    try:
+        with open(AP_LOCATIONS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        keyword = q.strip().lower()
+        if keyword in data:
+            return {"status": "success", "data": data[keyword]}
+            
+        for key, val in data.items():
+            if keyword in key.lower() or keyword in str(val).lower():
+                return {"status": "success", "data": val}
+                
+        return {"status": "not_found", "message": f"ไม่พบข้อมูลแปลนสำหรับ: {q}"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 @app.get("/liff", response_class=HTMLResponse)
 def liff_page():
     html_content =  f"""
@@ -787,6 +822,9 @@ def liff_page():
             .arrow-icon {{ transition: transform 0.3s; font-size: 12px; color: #888; margin-left: 6px; }}
             .area-group.open .arrow-icon {{ transform: rotate(180deg); color: #00E676; }}
             
+            .btn-share-area {{ background-color: #00B900; color: #FFF; border: none; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: bold; cursor: pointer; margin-right: 6px; }}
+            .btn-share-area:active {{ opacity: 0.7; }}
+
             .area-content {{ display: none; padding: 8px 4px; }}
             .area-group.open .area-content {{ display: block; }}
 
@@ -924,6 +962,14 @@ def liff_page():
 
             function extractSiteName(item, subject) {{
                 let rawText = subject + " " + JSON.stringify(item);
+                
+                // 1. ค้นหารหัสประจำจุดขึ้นต้น (เช่น I02457B) ก่อนเพื่อให้แม่นยำที่สุด
+                let codeMatch = rawText.match(/I[0-9]{4,5}[A-Z]/i);
+                if (codeMatch) {{
+                    return codeMatch[0].toUpperCase();
+                }}
+
+                // 2. ถ้าไม่เจอ ค้นหาจากคำสำคัญสถานที่
                 let siteKeywords = ['Central', 'Terminal', 'Emporium', 'EmQuartier', 'Siam', 'Paragon', 'IconSiam', 'Future', 'Mega', 'Seacon', 'Paradise', 'The Mall', 'True Digital Park', 'Hospital', 'อาคาร', 'The Street', 'Esplanade'];
                 for (let kw of siteKeywords) {{
                     let regex = new RegExp('(' + kw + '[^,|-]*)', 'i');
@@ -939,55 +985,93 @@ def liff_page():
                 canvas.height = 1050;
                 const ctx = canvas.getContext('2d');
 
-                ctx.fillStyle = '#000000';
+                // พื้นหลังสีขาว
+                ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                ctx.fillStyle = '#E50914';
-                ctx.font = 'bold 32px sans-serif';
+                // หัวข้อบริษัท (มุมขวาบน)
+                ctx.fillStyle = '#1A237E';
+                ctx.font = 'bold 22px sans-serif';
                 ctx.textAlign = 'right';
-                ctx.fillText('true', 740, 60);
+                ctx.fillText('Wire & Wireless Co., Ltd.', 740, 45);
 
+                // เลขที่เอกสาร (มุมซ้ายบน)
+                ctx.fillStyle = '#000000';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'left';
+                ctx.fillText(`เลขที่ TICC/BMA/PC${{ticket}}/2026`, 60, 60);
+
+                // วันที่ยื่นเอกสาร (ใช้วันปัจจุบัน)
                 const now = new Date();
                 const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
                 let dateStr = `${{now.getDate()}} ${{thaiMonths[now.getMonth()]}} ${{now.getFullYear() + 543}}`;
 
-                ctx.fillStyle = '#FFFFFF';
-                ctx.font = '16px sans-serif';
+                // วันที่เข้าดำเนินการ (บวกเพิ่มไป 7 วัน)
+                const targetDate = new Date();
+                targetDate.setDate(now.getDate() + 7);
+                let targetDateStr = `${{targetDate.getDate()}} ${{thaiMonths[targetDate.getMonth()]}} ${{targetDate.getFullYear() + 543}} 10:00:00`;
+
                 ctx.textAlign = 'right';
-                ctx.fillText(`วันที่ ${{dateStr}}`, 740, 110);
+                ctx.fillText(dateStr, 740, 100);
 
+                // เนื้อหาจดหมาย
                 ctx.textAlign = 'left';
-                ctx.fillText(`ที่ RNSO-BMA/${{ticket}}`, 60, 150);
-                ctx.fillText('เรื่อง ขออนุญาตเข้าปฏิบัติงาน', 60, 190);
-                ctx.fillText(`เรียน ฝ่ายอาคาร (${{siteName}})`, 60, 240);
-
                 ctx.font = '15px sans-serif';
+                
+                let startY = 160;
+                ctx.fillText('เรื่อง  ขออนุญาตตรวจสอบอุปกรณ์ WIFI_TRUE', 60, startY);
+                startY += 40;
+                ctx.fillText(`เรียน  เจ้าหน้าที่ ${{siteName}}`, 60, startY);
+                
+                startY += 50;
                 let bodyText = [
-                    'ตามที่ บริษัท ทรู อินเทอร์เน็ต คอร์ปอเรชั่น จำกัด ซึ่งเป็นผู้ได้รับใบอนุญาต',
-                    'ประกอบกิจการโทรคมนาคมแบบที่ 3 ได้ให้บริการสื่อสารข้อมูล และได้ให้บริการ',
-                    'สัญญาณอินเทอร์เน็ตภายในอาคารนั้น ใคร่ขออนุญาตเข้าตรวจเช็คอุปกรณ์',
-                    'อินเทอร์เน็ต SW WIFI / AP WIFI Down และขอเปิดห้องที่มีอุปกรณ์ภายในอาคาร',
-                    '',
-                    `สถานที่ปฏิบัติงาน: ${{siteName}}`,
-                    'กำหนดเข้าดำเนินการในรอบสัปดาห์นี้ เวลา 10:00 - 17:00 น.',
-                    '',
-                    'รายชื่อผู้เข้าปฏิบัติงาน:',
-                    '1. คุณกำพล สินชัย Mobile: 082-993-5011',
-                    '2. คุณภูวนัย โสประดิษฐ์ Mobile: 082-069-6454',
-                    '3. คุณวิทยา เสาโมก Mobile: 088-983-0070',
-                    '4. คุณพลวัฒน์ วรคำ Mobile: 099-874-4718',
-                    '',
-                    'จึงใคร่ขอความอนุเคราะห์จากท่านในการอำนวยความสะดวกเข้าปฏิบัติงาน',
-                    'ดังกล่าว ขอบคุณเจ้าหน้าที่อาคารทุกท่านที่ให้ความสะดวกด้วยดีตลอดมา'
+                    'เนื่องด้วยบริษัท บริษัท ทรู อินเทอร์เน็ต คอร์ปอเรชั่น (บริษัทฯ) ซึ่งเป็นผู้ได้รับใบอนุญาตประกอบกิจการ',
+                    'โทรคมนาคม แบบที่ 3',
+                    'จากคณะกรรมการกิจการ โทรคมนาคมแห่งชาติ ในการให้บริการสื่อสารโทรคมนาคม มีความประสงค์',
+                    'จะขออนุญาต ตรวจสอบอุปกรณ์ WIFI_TRUE เพื่อซ่อมบำรุงอุปกรณ์ ให้กับลูกค้า TRUE',
+                    `โดยจะเข้าตรวจสอบอยู่บริเวณ ${{siteName}}`
                 ];
 
-                let startY = 290;
                 bodyText.forEach(line => {{
                     ctx.fillText(line, 60, startY);
                     startY += 28;
                 }});
 
-                ctx.fillText('ขอแสดงความนับถือ', 60, startY + 40);
+                startY += 20;
+                ctx.fillText(`วันที่เข้าดำเนินการ ${{targetDateStr}}`, 60, startY);
+
+                startY += 45;
+                ctx.fillText('รายชื่อผู้ดำเนินงาน', 60, startY);
+
+                startY += 30;
+                let workers = [
+                    '1. คุณกำพล สินชัย Mobile: 082-993-5011',
+                    '2. คุณภูวนัย โสประดิษฐ์ Mobile: 082-069-6454',
+                    '3. คุณวิทยา เสาโมก Mobile: 088-983-0070'
+                ];
+
+                workers.forEach(w => {{
+                    ctx.fillText(w, 60, startY);
+                    startY += 25;
+                }});
+
+                startY += 30;
+                let closingText = [
+                    'จึงเรียนมาเพื่อโปรดพิจารณาอนุญาตให้บริษัทฯดำเนินการดังกล่าว',
+                    'โดยบริษัทฯหวังเป็นอย่างยิ่งว่าจะได้รับความร่วมมือด้วยดี'
+                ];
+                closingText.forEach(line => {{
+                    ctx.fillText(line, 60, startY);
+                    startY += 28;
+                }});
+
+                // ส่วนลงชื่อผู้จัดการ (มุมขวาล่าง)
+                startY += 60;
+                ctx.textAlign = 'right';
+                ctx.fillText('นาย นฤนาท สมภูมิ', 740, startY);
+                ctx.fillText('Manager', 740, startY + 22);
+                ctx.fillText('Dep. BMA East', 740, startY + 44);
+                ctx.fillText('Mobile: 0820054570', 740, startY + 66);
 
                 let dataUrl = canvas.toDataURL('image/png');
 
@@ -1051,6 +1135,159 @@ def liff_page():
                 }}
             }}
 
+            async function shareAreaToLine(areaId, areaName) {{
+                let rawItems = categorizedData[areaId] || [];
+                if (rawItems.length === 0) {{
+                    alert("ไม่มีรายการงานในเขตนี้สำหรับแชร์");
+                    return;
+                }}
+
+                // 💡 กรองข้อมูล: เลือกเฉพาะรายการที่ไม่ใช่ NSA5 ออกมาใช้งาน
+                let items = rawItems.filter(i => {{
+                    let sev = getVal(i, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '';
+                    let sevUpper = sev.toUpperCase().trim();
+                    if (sevUpper.includes('NSA5')) {{
+                        return false;
+                    }}
+                    return true;
+                }});
+
+                if (items.length === 0) {{
+                    alert("ไม่มีรายการงานที่ต้องส่งรายงาน (ไม่มีงาน SA5/SA6 หรือถูกกรอง NSA5 ออกหมดแล้ว)");
+                    return;
+                }}
+
+                alert("⏳ กำลังดึงข้อมูลตำแหน่ง AP ของทุก Ticket ในเขต " + areaName + " กรุณารอสักครู่...");
+
+                let processedItems = [];
+                for (let i of items) {{
+                    let ticket = getVal(i, ['TICKETID', 'TICKET_ID', 'TICKET', 'WOA', 'INCIDENT']) || '-';
+                    let ip = getVal(i, ['IP', 'IP_ADDRESS', 'IPADDRESS', 'HOST_IP', '_EXTRACTED_IP']) || '-';
+                    let originalSub = getVal(i, ['SUBJECT', 'TITLE', 'DESCRIPTION', 'SUMMARY']) || '-';
+                    
+                    // 1. หาชื่อสถานที่ดั้งเดิมก่อน เพื่อใช้ในการจัดกลุ่ม (เช่น เซ็นทรัลเฟสติวัล อีสต์วิลล์)
+                    let originalSiteName = extractSiteName(i, originalSub);
+                    let finalSub = originalSub;
+
+                    if (ip && ip !== '-') {{
+                        try {{
+                            let res = await fetch('/api/get_ap_config', {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }},
+                                body: JSON.stringify({{ ip: ip }})
+                            }});
+                            let configData = await res.json();
+                            
+                            if (configData.status === 'success' && configData.address && configData.address !== '-') {{
+                                let siteDesc = configData.site_name && configData.site_name !== '-' ? configData.site_name : '';
+                                let addressDesc = configData.address;
+                                finalSub = `TRUEWIFI | ${{ip}} | ${{siteDesc}} | ${{addressDesc}}`.replace(/\\s+/g, ' ').trim();
+                            }}
+                        }} catch (err) {{
+                            console.warn("ไม่สามารถดึงตำแหน่ง AP ของไอพี " + ip, err);
+                        }}
+                    }}
+
+                    processedItems.push({{
+                        ticket: ticket,
+                        ip: ip,
+                        siteName: originalSiteName, // ใช้ชื่อสถานที่ดั้งเดิมยึดเป็นหลัก
+                        subject: finalSub
+                    }});
+                }}
+
+                let uniqueSites = new Set();
+                processedItems.forEach(i => {{
+                    uniqueSites.add(i.siteName);
+                }});
+
+                let textReport = "TRUEWIFI | งานตรวจสอบหน้างาน\\n";
+                textReport += "รวม " + processedItems.length + " Tickets | " + uniqueSites.size + " สถานที่\\n";
+                textReport += "━━━━━━━━━━━━━━\\n";
+
+                let siteMap = {{}};
+                processedItems.forEach(i => {{
+                    if (!siteMap[i.siteName]) siteMap[i.siteName] = [];
+                    siteMap[i.siteName].push(i);
+                }});
+
+                for (let sName in siteMap) {{
+                    let sItems = siteMap[sName];
+                    textReport += "🏫 " + sName + " (" + sItems.length + ")\\n";
+                    
+                    sItems.forEach(i => {{
+                        textReport += i.ticket + " | " + i.ip + "\\n";
+                        textReport += "จุดติดตั้ง: " + i.subject + "\\n\\n";
+                    }});
+                    
+                    textReport += "━━━━━━━━━━━━━━\\n";
+                }}
+                
+                textReport += "รวม " + processedItems.length + " Tickets | " + uniqueSites.size + " สถานที่";
+
+                if (typeof liff !== 'undefined' && liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {{
+                    try {{
+                        await liff.shareTargetPicker([{{
+                            type: 'text',
+                            text: textReport.replace(/\\\\n/g, '\\n')
+                        }}]);
+                    }} catch (e) {{
+                        alert("ยกเลิกการแชร์ หรือแชร์ไม่สำเร็จ");
+                    }}
+                }} else {{
+                    copyTextToClipboard(textReport.replace(/\\\\n/g, '\\n'), () => {{
+                        alert("ดึงตำแหน่ง AP และคัดลอกรายงานเขต " + areaName + " ลงคลิปบอร์ดแล้ว!");
+                    }}, () => {{
+                        alert("ไม่สามารถคัดลอกข้อความได้");
+                    }});
+                }}
+            }}
+
+            async function searchAndShowFloorPlan(searchKey) {{
+                let existingModal = document.getElementById('floorPlanModal');
+                if (existingModal) existingModal.remove();
+
+                let modal = document.createElement('div');
+                modal.id = 'floorPlanModal';
+                modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:15px; box-sizing:border-box;';
+
+                modal.innerHTML = `
+                    <div style="background:#1C1C1E; width:100%; max-width:450px; border-radius:12px; padding:15px; display:flex; flex-direction:column; align-items:center; border:1px solid #333; max-height:90vh;">
+                        <div style="color:#00E676; font-size:14px; font-weight:bold; margin-bottom:10px; text-align:center;" id="fp-title">
+                            📍 กำลังค้นหาแปลนอาคาร...
+                        </div>
+                        <div style="overflow:auto; width:100%; max-height:60vh; margin-bottom:12px; text-align:center; position:relative; background:#000; border-radius:6px;" id="fp-content-area">
+                            <span style="color:#888; padding:30px; display:block;">⏳ กำลังโหลดรูปภาพ...</span>
+                        </div>
+                        <button onclick="document.getElementById('floorPlanModal').remove()" style="width:100%; padding:10px; background-color:#E50914; color:#FFF; border:none; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer;">
+                            ✖ ปิดหน้าต่าง
+                        </button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+
+                try {{
+                    const res = await fetch(`/api/get_ap_location?q=${{encodeURIComponent(searchKey)}}`);
+                    const result = await res.json();
+
+                    const titleEl = document.getElementById('fp-title');
+                    const contentArea = document.getElementById('fp-content-area');
+
+                    if (result.status === 'success' && result.data && result.data.image_url) {{
+                        titleEl.innerText = `📍 สถานที่: ${{result.data.site_name || searchKey}}`;
+                        contentArea.innerHTML = `
+                            <img src="${{result.data.image_url}}" style="width:100%; height:auto; display:block; border-radius:4px;" />
+                        `;
+                    }} else {{
+                        titleEl.innerText = `⚠️ ไม่พบข้อมูลแปลน`;
+                        contentArea.innerHTML = `<div style="color:#AAA; padding:20px;">ไม่พบรูปภาพแปลนสำหรับ "${{searchKey}}" ในระบบ</div>`;
+                    }}
+                }} catch (e) {{
+                    document.getElementById('fp-title').innerText = `❌ เกิดข้อผิดพลาด`;
+                    document.getElementById('fp-content-area').innerHTML = `<div style="color:#FF5252; padding:20px;">ไม่สามารถเชื่อมต่อระบบได้</div>`;
+                }}
+            }}
+
             function buildCardHtml(item, index) {{
                 let jsonStr = JSON.stringify(item).toLowerCase();
                 let isFemto = jsonStr.includes('femto');
@@ -1094,7 +1331,11 @@ def liff_page():
                     `;
                 }}
 
-                let ipActionHtml = ip !== '-' ? '<div class="action-btn-group" style="margin-top: 6px; display: flex; gap: 6px; width: 100%;"><button class="btn-action btn-ping" style="flex: 1;" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button><button class="btn-action btn-cfg" style="flex: 1;" onclick="toggleApConfig(\\'' + ip + '\\', \\'' + cardId + '\\')">⚙️ ค้นหา ตำแหน่ง AP</button></div>' : '';
+                let ipActionHtml = '<div class="action-btn-group" style="margin-top: 6px; display: flex; gap: 4px; width: 100%;">' +
+                    (ip !== '-' ? '<button class="btn-action btn-ping" style="flex: 1;" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button>' : '') +
+                    '<button class="btn-action btn-cfg" style="flex: 1; background-color: #FF9100; color: #000;" onclick="toggleApConfig(\\'' + ip + '\\', \\'' + cardId + '\\')">⚙️ ค้นหา ตำแหน่ง AP</button>' +
+                    '<button class="btn-action btn-cfg" style="flex: 1; background-color: #0288D1; color: #FFF;" onclick="searchAndShowFloorPlan(\\'' + siteName + '\\')">🗺️ ดูแปลนสถานที่</button>' +
+                    '</div>';
 
                 return `
                 <div class="card" id="${{cardId}}">
@@ -1205,11 +1446,12 @@ def liff_page():
                         : '<div style="text-align:center; padding:12px; color:#666; font-size:12px;">ไม่มีรายการงานค้างในเขตนี้</div>';
 
                     areaDiv.innerHTML = `
-                        <div class="area-header" onclick="toggleArea('${{area.id}}')">
-                            <span>${{area.name}}</span>
-                            <div>
-                                <span class="area-badge ${{isZero ? 'zero' : ''}}">${{items.length}}</span>
-                                <span class="arrow-icon">▼</span>
+                        <div class="area-header">
+                            <span onclick="toggleArea('${{area.id}}')" style="flex: 1;">${{area.name}}</span>
+                            <div style="display: flex; align-items: center;">
+                                <button class="btn-share-area" onclick="event.stopPropagation(); shareAreaToLine('${{area.id}}', '${{area.name}}')">📤 ส่งรายงานเข้า LINE</button>
+                                <span class="area-badge ${{isZero ? 'zero' : ''}}" onclick="toggleArea('${{area.id}}')">${{items.length}}</span>
+                                <span class="arrow-icon" onclick="toggleArea('${{area.id}}')">▼</span>
                             </div>
                         </div>
                         <div class="area-content" id="area-content-${{area.id}}">
