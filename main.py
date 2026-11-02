@@ -777,11 +777,19 @@ def get_ap_location(q: str):
             data = json.load(f)
             
         keyword = q.strip().lower()
-        if keyword in data:
-            return {"status": "success", "data": data[keyword]}
-            
+        
+        # 1. ค้นหาแบบตรงกับ Key (รหัสไซต์ เช่น I82117B) หรือ site_name
         for key, val in data.items():
-            if keyword in key.lower() or keyword in str(val).lower():
+            site_name = str(val.get("site_name", "")).lower()
+            if keyword == key.lower() or key.lower() in keyword or keyword in key.lower():
+                return {"status": "success", "data": val}
+            if keyword == site_name or site_name in keyword or keyword in site_name:
+                return {"status": "success", "data": val}
+                
+        # 2. ค้นหาแบบยืดหยุ่นในข้อมูลทั้งหมด (รองรับคำค้นหาบางส่วน)
+        for key, val in data.items():
+            val_str = json.dumps(val, ensure_ascii=False).lower()
+            if keyword in val_str or any(w in val_str for w in keyword.split() if len(w) > 2):
                 return {"status": "success", "data": val}
                 
         return {"status": "not_found", "message": f"ไม่พบข้อมูลแปลนสำหรับ: {q}"}
@@ -1188,7 +1196,7 @@ def liff_page():
                                 if (addressDesc) parts.push(addressDesc);
                                 finalSub = parts.join(' | ').replace(/\\s+/g, ' ').trim();
                             }}
-                            
+
                         }} catch (err) {{
                             console.warn("ไม่สามารถดึงตำแหน่ง AP ของไอพี " + ip, err);
                         }}
@@ -1320,7 +1328,7 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ticketNoteText = `ขอเข้า permission (${{siteName}})\\nCSMC Accept:\\nรายละเอียดเพิ่มเติม:\\nขอเข้า permission`;
+                let ticketNoteText = `[ขอเข้า Permission] 📌\\nTicket: ${{ticket}}\\nอัปเดตข้อมูลในระบบ เรียบร้อยแล้ว ขอบคุณครับ 🙏`;
                 let safeTicketNote = encodeURIComponent(ticketNoteText);
 
                 let isSa5 = severity.toUpperCase() === 'SA5';
@@ -1337,10 +1345,14 @@ def liff_page():
                     `;
                 }}
 
+                // ดึงรหัส IXXXXXB ออกมาจาก subject หรือข้อมูลโดยอัตโนมัติเพื่อให้ตรงกับ Key ใน JSON
+                let siteCodeMatch = (subject + " " + JSON.stringify(item)).match(/I[0-9]{4,5}[A-Z]/i);
+                let searchTarget = siteCodeMatch ? siteCodeMatch[0].toUpperCase() : siteName;
+
                 let ipActionHtml = '<div class="action-btn-group" style="margin-top: 6px; display: flex; gap: 4px; width: 100%;">' +
                     (ip !== '-' ? '<button class="btn-action btn-ping" style="flex: 1;" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button>' : '') +
                     '<button class="btn-action btn-cfg" style="flex: 1; background-color: #FF9100; color: #000;" onclick="toggleApConfig(\\'' + ip + '\\', \\'' + cardId + '\\')">⚙️ ค้นหา ตำแหน่ง AP</button>' +
-                    '<button class="btn-action btn-cfg" style="flex: 1; background-color: #0288D1; color: #FFF;" onclick="searchAndShowFloorPlan(\\'' + siteName + '\\')">🗺️ ดูแปลนสถานที่</button>' +
+                    '<button class="btn-action btn-cfg" style="flex: 1; background-color: #0288D1; color: #FFF;" onclick="searchAndShowFloorPlan(\\'' + searchTarget + '\\')">🗺️ ดูแปลนสถานที่</button>' +
                     '</div>';
 
                 return `

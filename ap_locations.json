@@ -1,16 +1,21 @@
 {
-    "True Digital Park": {
-        "site_name": "True Digital Park",
-        "image_url": "https://drive.google.com/uc?export=view&id=ใส่_FILE_ID_ของรูปภาพที่นี่"
+    "I83036B": {
+        "site_name": "โรงเรียนสตรีวิทยา 2",
+        "images": [
+            "https://drive.google.com/uc?export=view&id=1cuh77gzUi5Kn0efpUK35reeuNi-KQstM",
+            "https://drive.google.com/uc?export=view&id=1zTq7-jbcILlugX_EDzMTInDs5ilDrbjr"
+        ]
     },
-    "Terminal 21": {
-        "site_name": "Terminal 21",
-        "image_url": "https://drive.google.com/uc?export=view&id=ใส่_FILE_ID_ของรูปภาพที่นี่"
+    "I80631B": {
+        "site_name": "เทสโก้ โลตัส รามอินทรา",
+        "images": [
+            "https://drive.google.com/uc?export=view&id=1F_cFUI8XeSkMkeOfIF9hv5-oCwALlXb4"
+        ]
     },
-
-
-    "I02457B": {
-        "site_name": "Samitivej Sukhumvit (I02457B)",
-        "image_url": "https://drive.google.com/uc?export=view&id=FILE_ID_ของรูป"
+    "I82117B": {
+        "site_name": "เซ็นทรัลเฟสติวัล อีสต์วิลล์",
+        "images": [
+            "https://drive.google.com/uc?export=view&id=1OJBZ01M2LrToR86mx33hdSS4zaMnb9E7"
+        ]
     }
 }
