@@ -1328,7 +1328,7 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ticketNoteText = `[ขอเข้า Permission] 📌\\n\\nTicket: *${{ticket}}*\\nอัปเดตข้อมูลในระบบ เรียบร้อยแล้ว ขอบคุณครับ 🙏`;
+                let ticketNoteText = `[ขอเข้า Permission] 📌\\n\\nTicket: ${{ticket}}\\nอัปเดตข้อมูลในระบบ เรียบร้อยแล้ว ขอบคุณครับ 🙏`;
                 let safeTicketNote = encodeURIComponent(ticketNoteText);
 
                 let isSa5 = severity.toUpperCase() === 'SA5';
