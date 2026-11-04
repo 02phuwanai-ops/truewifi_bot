@@ -115,7 +115,7 @@ AREA_CONFIG = [
             'เหม่งจ๋าย', 'ประชาราษฎร์บำเพ็ญ', 'ศูนย์วัฒนธรรม',
             'เมืองไทย ภัทร', 'muang thai phatra'
         ],
-        "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน'] 
+        "exclude_keywords": ['ดินแดง', 'พญาไท', 'สามเสนใน', 'พหลโยธิน' , 'I80203B' , 'CP Tower 2 Fortune'] 
     },
     {
         "id": "area5", 
@@ -280,8 +280,16 @@ def get_processed_data():
     categorized = {area["id"]: [] for area in AREA_CONFIG}
     records = filtered_df.to_dict(orient="records")
 
+    # 💡 เพิ่มบรรทัดนี้ไว้บนสุดของลูป เพื่อบล็อกรหัสไซต์/บริษัทที่ไม่ใช่ของเราทันที
+    GLOBAL_EXCLUDES = ['I80203B', 'CP Tower 2']
+
     for record in records:
         row_text = ' '.join(str(v) for v in record.values())
+        
+        # ถ้าเจอคำต้องห้าม ให้ข้าม (ไม่ดึงเข้ามาในระบบเลย)
+        if any(ex.lower() in row_text.lower() for ex in GLOBAL_EXCLUDES):
+            continue
+
         extracted_ip = extract_ip(row_text)
         record['_EXTRACTED_IP'] = extracted_ip
 
@@ -295,20 +303,23 @@ def get_processed_data():
             continue
 
         for area in AREA_CONFIG:
-            if area["id"] == "area_nsa5":
+            # 💡 เพิ่มบรรทัดนี้: ข้ามเขตพิเศษ NSA4 และ NSA5 ไม่ให้มาปะปนในลูปเขตปกติ
+            if area["id"] in ["area_nsa4", "area_nsa5"]:
                 continue
+                
+            # 💡 ย้ายชุดเช็ค exclude มาไว้ด้านบนสุด เพื่อบล็อกก่อนเช็คคำค้นหา
+            excludes = area.get("exclude_keywords", [])
+            if excludes:
+                exclude_regex = '|'.join([re.escape(ex) for ex in excludes])
+                if re.search(exclude_regex, row_text, re.IGNORECASE):
+                    continue # ถ้าเจอคำต้องห้าม ให้ข้ามเขตนี้ไปเลย
+
             patterns = [re.escape(k) for k in area["keywords"]]
             if not patterns:
                 continue
             pattern_regex = '|'.join(patterns)
 
             if re.search(pattern_regex, row_text, re.IGNORECASE):
-                excludes = area.get("exclude_keywords", [])
-                if excludes:
-                    exclude_regex = '|'.join([re.escape(ex) for ex in excludes])
-                    if re.search(exclude_regex, row_text, re.IGNORECASE):
-                        continue
-
                 categorized[area["id"]].append(record)
                 break
 
