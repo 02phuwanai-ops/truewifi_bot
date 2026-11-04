@@ -332,38 +332,23 @@ def create_wifi_flex_message():
         return TextMessage(text="⚠️ ไม่สามารถดึงข้อมูลงานค้างได้ในขณะนี้")
 
     try:
-        wifi_total = 0
-        femto_total = 0
-        wifi_rows_json = []
-        femto_rows_json = []
+        total_jobs = 0
+        rows_json = []
 
         for area in AREA_CONFIG:
             items = categorized.get(area["id"], [])
-            count_femto = sum(1 for item in items if 'femto' in ' '.join(item.values()).lower())
-            count_wifi = len(items) - count_femto
+            count = len(items)
+            total_jobs += count
 
-            wifi_total += count_wifi
-            femto_total += count_femto
-
-            wifi_rows_json.append({
+            rows_json.append({
                 "type": "box", "layout": "horizontal",
                 "contents": [
                     {"type": "text", "text": area["name"], "size": "sm", "color": "#DDDDDD", "flex": 4, "wrap": True},
-                    {"type": "text", "text": f"{count_wifi} งาน", "size": "sm", "color": "#FFD700" if count_wifi > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
+                    {"type": "text", "text": f"{count} งาน", "size": "sm", "color": "#FFD700" if count > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
                 ],
                 "margin": "xs"
             })
 
-            femto_rows_json.append({
-                "type": "box", "layout": "horizontal",
-                "contents": [
-                    {"type": "text", "text": area["name"], "size": "sm", "color": "#DDDDDD", "flex": 4, "wrap": True},
-                    {"type": "text", "text": f"{count_femto} งาน", "size": "sm", "color": "#00E676" if count_femto > 0 else "#888888", "weight": "bold", "align": "end", "flex": 2}
-                ],
-                "margin": "xs"
-            })
-
-        grand_total = wifi_total + femto_total
         liff_url = f"https://liff.line.me/{LIFF_ID}"
 
         flex_json = {
@@ -375,7 +360,7 @@ def create_wifi_flex_message():
                     {
                         "type": "box", "layout": "horizontal",
                         "contents": [
-                            {"type": "text", "text": "📡 TRUE WIFI & FEMTO REPORT", "weight": "bold", "color": "#E50914", "size": "xs"},
+                            {"type": "text", "text": "📡 TRUE WIFI REPORT", "weight": "bold", "color": "#E50914", "size": "xs"},
                             {"type": "text", "text": f"Source: {data_source}", "size": "xs", "color": "#888888", "align": "end"}
                         ]
                     },
@@ -385,31 +370,14 @@ def create_wifi_flex_message():
             "body": {
                 "type": "box", "layout": "vertical", "backgroundColor": "#242424", "paddingAll": "md",
                 "contents": [
-                    {"type": "text", "text": "📶 True WiFi", "weight": "bold", "color": "#FFD700", "size": "sm"},
-                    {"type": "box", "layout": "vertical", "margin": "xs", "contents": wifi_rows_json},
-                    {
-                        "type": "box", "layout": "horizontal", "margin": "sm",
-                        "contents": [
-                            {"type": "text", "text": "รวม WiFi", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{wifi_total} งาน", "size": "xs", "color": "#FFD700", "weight": "bold", "align": "end", "flex": 2}
-                        ]
-                    },
-                    {"type": "separator", "margin": "md", "color": "#444444"},
-                    {"type": "text", "text": "📱 Femto Cell", "weight": "bold", "color": "#00E676", "size": "sm", "margin": "md"},
-                    {"type": "box", "layout": "vertical", "margin": "xs", "contents": femto_rows_json},
-                    {
-                        "type": "box", "layout": "horizontal", "margin": "sm",
-                        "contents": [
-                            {"type": "text", "text": "รวม Femto", "size": "xs", "color": "#AAAAAA", "flex": 4},
-                            {"type": "text", "text": f"{femto_total} งาน", "size": "xs", "color": "#00E676", "weight": "bold", "align": "end", "flex": 2}
-                        ]
-                    },
+                    {"type": "text", "text": "📶 True WiFi & งานร้องเรียน/พิเศษ", "weight": "bold", "color": "#FFD700", "size": "sm"},
+                    {"type": "box", "layout": "vertical", "margin": "xs", "contents": rows_json},
                     {"type": "separator", "margin": "md", "color": "#444444"},
                     {
                         "type": "box", "layout": "horizontal", "margin": "md",
                         "contents": [
                             {"type": "text", "text": "🔴 งานค้างรวมทั้งหมด", "weight": "bold", "color": "#FFFFFF", "size": "sm", "flex": 4},
-                            {"type": "text", "text": f"{grand_total} งาน", "weight": "bold", "color": "#FF3B30", "size": "md", "align": "end", "flex": 2}
+                            {"type": "text", "text": f"{total_jobs} งาน", "weight": "bold", "color": "#FF3B30", "size": "md", "align": "end", "flex": 2}
                         ]
                     }
                 ]
@@ -432,7 +400,7 @@ def create_wifi_flex_message():
         }
 
         return FlexMessage(
-            alt_text=f"📊 สรุปงานค้างซ่อม True WiFi & Femto (รวม {grand_total} งาน)",
+            alt_text=f"📊 สรุปงานค้างซ่อม True WiFi (รวม {total_jobs} งาน)",
             contents=FlexContainer.from_dict(flex_json)
         )
 
