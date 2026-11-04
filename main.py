@@ -85,23 +85,19 @@ ALLOWED_BCODES = ['B104', 'B111', 'B112', 'B113']
 AREA_CONFIG = [
     {
         "id": "area1", 
-        "name": "1. พระโขนง", 
+        "name": "1. พระโขนง / คลองเตย", 
         "keywords": [
             'B113', 'พระโขนง', 'บางจาก', 'True Digital Park',
             'NKHG-1ROETZ', 'I53089B', 'I84444B', 'I82743B', 
             'NKHG-23PFG9', 'I54112B', 'I53944B', 'I84438B', 
             'I90389B', 'S10878', 'I90341B', 'I53922B', 
-            'I01736B', 'I50211B'
+            'I01736B', 'I50211B',
+            'คลองเตย', 'กล้วยน้ำไท'
         ]
     },
     {
-        "id": "area2", 
-        "name": "2. คลองเตย", 
-        "keywords": ['คลองเตย', 'กล้วยน้ำไท']
-    },
-    {
         "id": "area3", 
-        "name": "3. วัฒนา", 
+        "name": "2. วัฒนา", 
         "keywords": [
             'B112', 'วัฒนา', 'คลองตันเหนือ', 'Samitivej', 'Terminal 21',
             'I02457B', 'I81112B', 'I81627B', 'I53974B', 
@@ -110,7 +106,7 @@ AREA_CONFIG = [
     },
     {
         "id": "area4", 
-        "name": "4. ห้วยขวาง", 
+        "name": "3. ห้วยขวาง", 
         "keywords": [
             'I04964B', 'I80780B', 'I06217B', 'I81037B', 'I53950B',
             'ห้วยขวาง', 'Grand Rama 9', 'Grand Rama9', 
@@ -123,13 +119,21 @@ AREA_CONFIG = [
     },
     {
         "id": "area5", 
-        "name": "5. ลาดพร้าว", 
-        "keywords": ['B111', 'ลาดพร้าว', 'จรเข้บัว', 'Eastville', 'สตรีวิทยา 2']
+        "name": "4. ลาดพร้าว / วังทองหลาง", 
+        "keywords": [
+            'B111', 'ลาดพร้าว', 'จรเข้บัว', 'Eastville', 'สตรีวิทยา 2',
+            'วังทองหลาง', 'พลับพลา', 'Lotus Ramintra'
+        ]
     },
     {
-        "id": "area6", 
-        "name": "6. วังทองหลาง", 
-        "keywords": ['วังทองหลาง', 'พลับพลา', 'Lotus Ramintra']
+        "id": "area_nsa4", 
+        "name": "🚨 งาน NSA4 (งานร้องเรียน)", 
+        "keywords": []
+    },
+    {
+        "id": "area_nsa5", 
+        "name": "5. งาน NSA5 (รีโนเวท / ยกเลิก)", 
+        "keywords": []
     }
 ]
 
@@ -278,9 +282,24 @@ def get_processed_data():
 
     for record in records:
         row_text = ' '.join(str(v) for v in record.values())
+        extracted_ip = extract_ip(row_text)
+        record['_EXTRACTED_IP'] = extracted_ip
+
+        # 💡 เช็คงาน NSA4 และ NSA5 แยกกล่องพิเศษ
+        severity_val = str(record.get('SEVERITY', '') or record.get('priority_pending', '') or record.get('PRIORITY', '')).upper()
+        if 'NSA4' in severity_val or 'NSA4' in row_text.upper():
+            categorized["area_nsa4"].append(record)
+            continue
+        elif 'NSA5' in severity_val or 'NSA5' in row_text.upper():
+            categorized["area_nsa5"].append(record)
+            continue
 
         for area in AREA_CONFIG:
+            if area["id"] == "area_nsa5":
+                continue
             patterns = [re.escape(k) for k in area["keywords"]]
+            if not patterns:
+                continue
             pattern_regex = '|'.join(patterns)
 
             if re.search(pattern_regex, row_text, re.IGNORECASE):
@@ -290,8 +309,6 @@ def get_processed_data():
                     if re.search(exclude_regex, row_text, re.IGNORECASE):
                         continue
 
-                extracted_ip = extract_ip(row_text)
-                record['_EXTRACTED_IP'] = extracted_ip
                 categorized[area["id"]].append(record)
                 break
 
@@ -1328,7 +1345,7 @@ def liff_page():
                 let safeSubject = encodeURIComponent(subject);
                 let safeIp = encodeURIComponent(ip);
 
-                let ticketNoteText = `[ขอเข้า Permission] 📌\\n\\nTicket: ${{ticket}}\\nอัปเดตข้อมูลในระบบ เรียบร้อยแล้ว ขอบคุณครับ 🙏`;
+                let ticketNoteText = `[ขอเข้า Permission] 📌\\n\\nTicket: ${{ticket}} \\nอัปเดตข้อมูลในระบบ เรียบร้อยแล้ว ขอบคุณครับ 🙏`;
                 let safeTicketNote = encodeURIComponent(ticketNoteText);
 
                 let isSa5 = severity.toUpperCase() === 'SA5';
@@ -1458,17 +1475,22 @@ def liff_page():
                     areaDiv.id = 'area-group-' + area.id;
 
                     let isZero = items.length === 0;
+                    let isNsa5Group = (area.id === 'area_nsa5');
+                    let shareButtonHtml = !isNsa5Group ? `<button class="btn-share-area" onclick="event.stopPropagation(); shareAreaToLine('${{area.id}}', '${{area.name}}')">📤 ส่งรายงานเข้า LINE</button>` : '';
+
+                    let headerStyle = isNsa5Group ? 'background-color: #1E1E24; border-left: 4px solid #757575;' : '';
+                    let titleStyle = isNsa5Group ? 'flex: 1; color: #AAA;' : 'flex: 1;';
 
                     let cardsHtml = items.length > 0 
                         ? items.map((item, idx) => buildCardHtml(item, idx)).join('')
                         : '<div style="text-align:center; padding:12px; color:#666; font-size:12px;">ไม่มีรายการงานค้างในเขตนี้</div>';
 
                     areaDiv.innerHTML = `
-                        <div class="area-header">
-                            <span onclick="toggleArea('${{area.id}}')" style="flex: 1;">${{area.name}}</span>
+                        <div class="area-header" style="${{headerStyle}}">
+                            <span onclick="toggleArea('${{area.id}}')" style="${{titleStyle}}">${{area.name}}</span>
                             <div style="display: flex; align-items: center;">
-                                <button class="btn-share-area" onclick="event.stopPropagation(); shareAreaToLine('${{area.id}}', '${{area.name}}')">📤 ส่งรายงานเข้า LINE</button>
-                                <span class="area-badge ${{isZero ? 'zero' : ''}}" onclick="toggleArea('${{area.id}}')">${{items.length}}</span>
+                                ${{shareButtonHtml}}
+                                <span class="area-badge ${{isZero ? 'zero' : ''}}" style="${{isNsa5Group ? 'background-color:#555; color:#FFF;' : ''}}" onclick="toggleArea('${{area.id}}')">${{items.length}}</span>
                                 <span class="arrow-icon" onclick="toggleArea('${{area.id}}')">▼</span>
                             </div>
                         </div>
