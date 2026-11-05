@@ -1462,7 +1462,7 @@ def liff_page():
 
                     let isZero = items.length === 0;
                     let isNsa5Group = (area.id === 'area_nsa5');
-                    let shareButtonHtml = !isNsa5Group ? `<button class="btn-share-area" onclick="event.stopPropagation(); shareAreaToLine('${{area.id}}', '${{area.name}}')">📤 ส่งรายงานเข้า LINE</button>` : '';
+                    let shareButtonHtml = !isNsa5Group ? `<button class="btn-share-area" onclick="event.stopPropagation(); shareAreaToLine('${{area.id}}', '${{area.name}}')">📤 ส่งเข้า LINE</button>` : '';
 
                     let headerStyle = isNsa5Group ? 'background-color: #1E1E24; border-left: 4px solid #757575;' : '';
                     let titleStyle = isNsa5Group ? 'flex: 1; color: #AAA;' : 'flex: 1;';
