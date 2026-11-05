@@ -323,6 +323,13 @@ def get_processed_data():
                 categorized[area["id"]].append(record)
                 break
 
+    # 💡 จัดเรียงรายการในแต่ละเขตให้สถานที่หรือรหัส Circuit ที่เหมือนกันมาเรียงกลุ่มติดกัน (ดึงรหัสไซต์ IXXXXXB มาจัดกลุ่ม)
+    for area_id in categorized:
+        categorized[area_id] = sorted(
+            categorized[area_id], 
+            key=lambda x: (lambda t: (re.search(r'I[0-9]{4,5}[A-Z]', t, re.IGNORECASE).group(0).upper() if re.search(r'I[0-9]{4,5}[A-Z]', t, re.IGNORECASE) else t))(' '.join(str(v) for v in x.values()))
+        )
+
     return filtered_df, source, categorized
 
 def create_wifi_flex_message():
