@@ -899,7 +899,15 @@ def liff_page():
             <div class="setting-bar">
                 <input type="text" id="empIdInput" class="emp-input" placeholder="🆔 Employee ID (8 หลัก)" onchange="saveEmpId()">
             </div>
-            <input type="text" id="searchInput" class="search-box" placeholder="🔍 ค้นหา TICKETID, IP, SUBJECT, STATUS..." oninput="filterData()">
+            <div style="display: flex; gap: 6px; margin-top: 6px;">
+            <input type="text" id="searchInput" class="search-box" placeholder="🔍 ค้นหา TICKETID, IP, SUBJECT, STATUS..." oninput="filterData()" style="flex: 2;">
+            <select id="pendingFilter" class="search-box" onchange="filterData()" style="flex: 1; background-color: #1E1E1E; color: #FFF; cursor: pointer;">
+                <option value="">-- ช่วงเวลา Pending ทั้งหมด --</option>
+                <option value="pending within sla">Pending Within SLA</option>
+                <option value="under_1_month">น้อยกว่า 1 เดือน (ภายในเดือนนี้)</option>
+                <option value="over_1_month">มากกว่า 1 เดือน</option>
+            </select>
+        </div>
             <div class="count-info" id="countInfo">กำลังโหลดข้อมูล...</div>
         </div>
 
@@ -980,14 +988,17 @@ def liff_page():
                     return codeMatch[0].toUpperCase();
                 }}
 
-                // 2. ถ้าไม่เจอ ค้นหาจากคำสำคัญสถานที่
-                let siteKeywords = ['Central', 'Terminal', 'Emporium', 'EmQuartier', 'Siam', 'Paragon', 'IconSiam', 'Future', 'Mega', 'Seacon', 'Paradise', 'The Mall', 'True Digital Park', 'Hospital', 'อาคาร', 'The Street', 'Esplanade'];
+                // 2. ค้นหาจากคำสำคัญสถานที่
+                let siteKeywords = ['Bodindecha', 'Central', 'Terminal', 'Emporium', 'EmQuartier', 'Siam', 'Paragon', 'IconSiam', 'Future', 'Mega', 'Seacon', 'Paradise', 'The Mall', 'True Digital Park', 'Hospital', 'อาคาร', 'The Street', 'Esplanade'];
                 for (let kw of siteKeywords) {{
                     let regex = new RegExp('(' + kw + '[^,|-]*)', 'i');
                     let match = rawText.match(regex);
                     if (match) return match[1].trim();
                 }}
-                return "ฝ่ายอาคาร / ผู้จัดการอาคารสถานที่";
+                
+                // 3. ถ้าไม่ตรงอะไรเลย ให้ดึงข้อความหน้าสุดของ Subject มาใช้ค้นหาแทน
+                let cleanSubject = subject ? subject.split('|')[0].trim() : '';
+                return cleanSubject || "Unknown Site";
             }}
             
             function generateLetterImage(siteName, ticket) {{
@@ -1147,14 +1158,53 @@ def liff_page():
             }}
 
             async function shareAreaToLine(areaId, areaName) {{
+                // 💡 แก้ไข: ดึงเฉพาะรายการที่ผ่านการกรองและแสดงผลบนหน้าจอแล้วเท่านั้น (ไม่ใช่ข้อมูลดิบทั้งหมด)
+                let areaGroupEl = document.getElementById('area-group-' + areaId);
                 let rawItems = categorizedData[areaId] || [];
-                if (rawItems.length === 0) {{
-                    alert("ไม่มีรายการงานในเขตนี้สำหรับแชร์");
-                    return;
-                }}
+                
+                // ถ้ามีการกรองข้อมูลอยู่ ให้กรองเอาเฉพาะ item ที่ตรงกับเงื่อนไขการค้นหาและ Dropdown บนหน้าจอ
+                const query = document.getElementById('searchInput').value.toLowerCase().trim();
+                const filterType = document.getElementById('pendingFilter').value.trim();
 
-                // 💡 กรองข้อมูล: เลือกเฉพาะรายการที่ไม่ใช่ NSA5 ออกมาใช้งาน
-                let items = rawItems.filter(i => {{
+                let items = rawItems.filter(item => {{
+                    let str = JSON.stringify(item).toLowerCase();
+                    let matchesQuery = !query || str.includes(query);
+
+                    let matchesPending = true;
+                    if (filterType) {{
+                        let pendingDuration = getVal(item, ['Pending_Duration', 'PENDING_DURATION', 'SLA_Flag_Group', 'Aging_Flag_Group']) || '';
+                        let creationDateStr = getVal(item, ['CREATIONDATE', 'CREATION_DATE', 'CREATED']) || '';
+                        let pdLower = pendingDuration.toLowerCase();
+
+                        if (filterType === 'pending within sla') {{
+                            matchesPending = pdLower.includes('within sla');
+                        }} else if (filterType === 'under_1_month') {{
+                            if (creationDateStr) {{
+                                let createDate = new Date(creationDateStr);
+                                let now = new Date();
+                                let diffTime = now - createDate;
+                                let diffDays = diffTime / (1000 * 60 * 60 * 24);
+                                matchesPending = (diffDays >= 0 && diffDays <= 30);
+                            }} else {{
+                                matchesPending = false;
+                            }}
+                        }} else if (filterType === 'over_1_month') {{
+                            if (creationDateStr) {{
+                                let createDate = new Date(creationDateStr);
+                                let now = new Date();
+                                let diffTime = now - createDate;
+                                let diffDays = diffTime / (1000 * 60 * 60 * 24);
+                                matchesPending = (diffDays > 30);
+                            }} else {{
+                                matchesPending = false;
+                            }}
+                        }}
+                    }}
+                    return matchesQuery && matchesPending;
+                }});
+
+                // กรองงาน NSA5 ออกตามกฎเดิม
+                items = items.filter(i => {{
                     let sev = getVal(i, ['SEVERITY', 'priority_pending', 'PRIORITY']) || '';
                     let sevUpper = sev.toUpperCase().trim();
                     if (sevUpper.includes('NSA5')) {{
@@ -1164,11 +1214,11 @@ def liff_page():
                 }});
 
                 if (items.length === 0) {{
-                    alert("ไม่มีรายการงานที่ต้องส่งรายงาน (ไม่มีงาน SA5/SA6 หรือถูกกรอง NSA5 ออกหมดแล้ว)");
+                    alert("ไม่มีรายการงานที่แสดงผลในเขตนี้สำหรับแชร์");
                     return;
                 }}
 
-                alert("⏳ กำลังดึงข้อมูลตำแหน่ง AP ของทุก Ticket ในเขต " + areaName + " กรุณารอสักครู่...");
+                alert("⏳ กำลังดึงข้อมูลตำแหน่ง AP ของ " + items.length + " Tickets ในเขต " + areaName + " กรุณารอสักครู่...");
 
                 let processedItems = [];
                 for (let i of items) {{
@@ -1176,7 +1226,6 @@ def liff_page():
                     let ip = getVal(i, ['IP', 'IP_ADDRESS', 'IPADDRESS', 'HOST_IP', '_EXTRACTED_IP']) || '-';
                     let originalSub = getVal(i, ['SUBJECT', 'TITLE', 'DESCRIPTION', 'SUMMARY']) || '-';
                     
-                    // 1. หาชื่อสถานที่ดั้งเดิมก่อน เพื่อใช้ในการจัดกลุ่ม (เช่น เซ็นทรัลเฟสติวัล อีสต์วิลล์)
                     let originalSiteName = extractSiteName(i, originalSub);
                     let finalSub = originalSub;
 
@@ -1193,13 +1242,11 @@ def liff_page():
                                 let siteDesc = configData.site_name && configData.site_name !== '-' ? configData.site_name : '';
                                 let addressDesc = configData.address;
                                 
-                                // ปรับแก้: ตัด TRUEWIFI และ IP ออก ให้แสดงเฉพาะชื่อสถานที่และตำแหน่ง AP
                                 let parts = [];
                                 if (siteDesc) parts.push(siteDesc);
                                 if (addressDesc) parts.push(addressDesc);
                                 finalSub = parts.join(' | ').replace(/\\s+/g, ' ').trim();
                             }}
-
                         }} catch (err) {{
                             console.warn("ไม่สามารถดึงตำแหน่ง AP ของไอพี " + ip, err);
                         }}
@@ -1208,7 +1255,7 @@ def liff_page():
                     processedItems.push({{
                         ticket: ticket,
                         ip: ip,
-                        siteName: originalSiteName, // ใช้ชื่อสถานที่ดั้งเดิมยึดเป็นหลัก
+                        siteName: originalSiteName,
                         subject: finalSub
                     }});
                 }}
@@ -1253,7 +1300,7 @@ def liff_page():
                     }}
                 }} else {{
                     copyTextToClipboard(textReport.replace(/\\\\n/g, '\\n'), () => {{
-                        alert("ดึงตำแหน่ง AP และคัดลอกรายงานเขต " + areaName + " ลงคลิปบอร์ดแล้ว!");
+                        alert("ดึงตำแหน่ง AP และคัดลอกรายงานเฉพาะ " + processedItems.length + " รายการที่แสดงผล ลงคลิปบอร์ดแล้ว!");
                     }}, () => {{
                         alert("ไม่สามารถคัดลอกข้อความได้");
                     }});
@@ -1348,9 +1395,10 @@ def liff_page():
                     `;
                 }}
 
-                // ดึงรหัส IXXXXXB ออกมาจาก subject หรือข้อมูลโดยอัตโนมัติเพื่อให้ตรงกับ Key ใน JSON
-                let siteCodeMatch = (subject + " " + JSON.stringify(item)).match(/I[0-9]{4,5}[A-Z]/i);
-                let searchTarget = siteCodeMatch ? siteCodeMatch[0].toUpperCase() : siteName;
+                // ดึงรหัสตัวเลข 4-5 หลักตามด้วยตัวอักษร (เช่น 82117B) และเติม I นำหน้าให้ตรงกับ Key ใน JSON
+                let siteCodeMatch = (subject + " " + JSON.stringify(item)).match(/[0-9]{4,5}[A-Z]/i);
+                let searchTarget = siteCodeMatch ? "I" + siteCodeMatch[0].toUpperCase() : siteName;
+                if (searchTarget.startsWith("II")) searchTarget = searchTarget.substring(1);
 
                 let ipActionHtml = '<div class="action-btn-group" style="margin-top: 6px; display: flex; gap: 4px; width: 100%;">' +
                     (ip !== '-' ? '<button class="btn-action btn-ping" style="flex: 1;" onclick="runPingTest(\\'' + ip + '\\', \\'' + cardId + '\\')">⚡ Ping</button>' : '') +
@@ -1599,17 +1647,53 @@ def liff_page():
 
             function filterData() {{
                 const query = document.getElementById('searchInput').value.toLowerCase().trim();
-                if (!query) {{
-                    renderAccordion(categorizedData);
-                    return;
-                }}
+                const filterType = document.getElementById('pendingFilter').value.trim();
 
                 let filteredCategorized = {{}};
                 areaConfig.forEach(area => {{
                     let items = categorizedData[area.id] || [];
                     filteredCategorized[area.id] = items.filter(item => {{
                         let str = JSON.stringify(item).toLowerCase();
-                        return str.includes(query);
+                        
+                        // 1. เช็คเงื่อนไขช่องค้นหาข้อความทั่วไป
+                        let matchesQuery = !query || str.includes(query);
+
+                        // 2. เช็คเงื่อนไขตัวกรอง Pending / ช่วงเวลา
+                        let matchesPending = true;
+                        if (filterType) {{
+                            let pendingDuration = getVal(item, ['Pending_Duration', 'PENDING_DURATION', 'SLA_Flag_Group', 'Aging_Flag_Group']) || '';
+                            let creationDateStr = getVal(item, ['CREATIONDATE', 'CREATION_DATE', 'CREATED']) || '';
+                            
+                            let pdLower = pendingDuration.toLowerCase();
+
+                            if (filterType === 'pending within sla') {{
+                                matchesPending = pdLower.includes('within sla');
+                            }} else if (filterType === 'under_1_month') {{
+                                // น้อยกว่า 1 เดือน / ภายในเดือนนี้ (เช็คจากวันที่สร้างงานเทียบกับปัจจุบัน)
+                                if (creationDateStr) {{
+                                    let createDate = new Date(creationDateStr);
+                                    let now = new Date();
+                                    let diffTime = now - createDate;
+                                    let diffDays = diffTime / (1000 * 60 * 60 * 24);
+                                    matchesPending = (diffDays >= 0 && diffDays <= 30);
+                                }} else {{
+                                    matchesPending = false;
+                                }}
+                            }} else if (filterType === 'over_1_month') {{
+                                // มากกว่า 1 เดือน (> 30 วัน)
+                                if (creationDateStr) {{
+                                    let createDate = new Date(creationDateStr);
+                                    let now = new Date();
+                                    let diffTime = now - createDate;
+                                    let diffDays = diffTime / (1000 * 60 * 60 * 24);
+                                    matchesPending = (diffDays > 30);
+                                }} else {{
+                                    matchesPending = false;
+                                }}
+                            }}
+                        }}
+
+                        return matchesQuery && matchesPending;
                     }});
                 }});
 

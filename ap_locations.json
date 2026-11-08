@@ -1,9 +1,8 @@
 {
-    "I83036B": {
-        "site_name": "โรงเรียนสตรีวิทยา 2",
+    "I80311B": {
+        "site_name": "คริสตัล ปาร์ค",
         "images": [
-            "https://drive.google.com/uc?export=view&id=1cuh77gzUi5Kn0efpUK35reeuNi-KQstM",
-            "https://drive.google.com/uc?export=view&id=1zTq7-jbcILlugX_EDzMTInDs5ilDrbjr"
+            "ใส่ลิงก์รูปภาพแปลนจาก Google Drive ที่นี่"
         ]
     },
     "I80631B": {
@@ -12,10 +11,41 @@
             "https://drive.google.com/uc?export=view&id=1F_cFUI8XeSkMkeOfIF9hv5-oCwALlXb4"
         ]
     },
+    "I80645B": {
+        "site_name": "เทสโก้ โลตัส วังหิน",
+        "images": [
+            "ใส่ลิงก์รูปภาพแปลนจาก Google Drive ที่นี่"
+        ]
+    },
     "I82117B": {
-        "site_name": "เซ็นทรัลเฟสติวัล อีสต์วิลล์",
+    "site_name": ["เซ็นทรัลเฟสติวัล อีสต์วิลล์", "Central Festival Eastville"],
         "images": [
             "https://drive.google.com/uc?export=view&id=1OJBZ01M2LrToR86mx33hdSS4zaMnb9E7"
+        ]
+    },
+    "I83036B": {
+        "site_name": "โรงเรียนสตรีวิทยา 2",
+        "images": [
+            "https://drive.google.com/uc?export=view&id=1cuh77gzUi5Kn0efpUK35reeuNi-KQstM",
+            "https://drive.google.com/uc?export=view&id=1zTq7-jbcILlugX_EDzMTInDs5ilDrbjr"
+        ]
+    },
+    "Lotus Go Fresh": {
+        "site_name": "Lotus Go Fresh",
+        "images": [
+            "ใส่ลิงก์รูปภาพแปลนจาก Google Drive ที่นี่"
+        ]
+    },
+    "NKHG-1ON249": {
+        "site_name": "โรงเบียร์ รามอินทรา",
+        "images": [
+            "ใส่ลิงก์รูปภาพแปลนจาก Google Drive ที่นี่"
+        ]
+    },
+    "NKHG-XUBFRO": {
+        "site_name": "เดอะวอล์ค (เกษตร-นวมินทร์)",
+        "images": [
+            "ใส่ลิงก์รูปภาพแปลนจาก Google Drive ที่นี่"
         ]
     }
 }
