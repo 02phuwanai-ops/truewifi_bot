@@ -18,9 +18,10 @@
         ]
     },
     "I82117B": {
-    "site_name": ["เซ็นทรัลเฟสติวัล อีสต์วิลล์", "Central Festival Eastville"],
+        "site_name": "เซ็นทรัลเฟสติวัล อีสต์วิลล์",
+        "ap_codes": ["CFEV-FL2-AP11P", "CFEV-FL2-AP12P", "CFEV-MJ-FL03-AP11"],
         "images": [
-            "https://drive.google.com/uc?export=view&id=1OJBZ01M2LrToR86mx33hdSS4zaMnb9E7"
+            "https://drive.google.com/uc?export=view&id=1ubc8rH0Sq8HWrplof1DrZYmoLtIrJZxx"
         ]
     },
     "I83036B": {

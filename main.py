@@ -108,7 +108,7 @@ AREA_CONFIG = [
         "id": "area4", 
         "name": "3. ห้วยขวาง", 
         "keywords": [
-            'I04964B', 'I80780B', 'I06217B', 'I81037B', 'I53950B',
+            'I04964B', 'I80780B', 'I06217B', 'I81037B', 'I53950B' , 'I11670B',
             'ห้วยขวาง', 'Grand Rama 9', 'Grand Rama9', 
             'Central Plaza Grand Rama 9', 'Bangkok Hospital Research Center',
             'พระราม 9', 'พระราม๙', 'พระราม9', 
@@ -779,21 +779,44 @@ def get_ap_location(q: str):
         with open(AP_LOCATIONS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             
-        keyword = q.strip().lower()
+        keyword = q.strip().upper()
         
-        # 1. ค้นหาแบบตรงกับ Key (รหัสไซต์ เช่น I82117B) หรือ site_name
+        # 1. ค้นหาแบบตรงกับ Key หลัก (เช่น I82117B) หรือมีคำค้นอยู่ใน Key
         for key, val in data.items():
-            site_name = str(val.get("site_name", "")).lower()
-            if keyword == key.lower() or key.lower() in keyword or keyword in key.lower():
-                return {"status": "success", "data": val}
-            if keyword == site_name or site_name in keyword or keyword in site_name:
-                return {"status": "success", "data": val}
+            if keyword == key.upper() or keyword in key.upper() or key.upper() in keyword:
+                site_name_val = val.get("site_name", key)
+                if isinstance(site_name_val, list):
+                    site_name_val = site_name_val[0] # ถ้าเป็นอาเรย์ ให้เอาชื่อแรก
                 
-        # 2. ค้นหาแบบยืดหยุ่นในข้อมูลทั้งหมด (รองรับคำค้นหาบางส่วน)
+                images_val = val.get("images", [])
+                img_url = val.get("image_url") or (images_val[0] if images_val else "")
+                
+                return {
+                    "status": "success", 
+                    "data": {
+                        "site_name": site_name_val,
+                        "image_url": img_url
+                    }
+                }
+                
+        # 2. ค้นหาแบบยืดหยุ่นในข้อมูลทั้งหมด
         for key, val in data.items():
             val_str = json.dumps(val, ensure_ascii=False).lower()
-            if keyword in val_str or any(w in val_str for w in keyword.split() if len(w) > 2):
-                return {"status": "success", "data": val}
+            if keyword.lower() in val_str:
+                site_name_val = val.get("site_name", key)
+                if isinstance(site_name_val, list):
+                    site_name_val = site_name_val[0]
+                
+                images_val = val.get("images", [])
+                img_url = val.get("image_url") or (images_val[0] if images_val else "")
+                
+                return {
+                    "status": "success", 
+                    "data": {
+                        "site_name": site_name_val,
+                        "image_url": img_url
+                    }
+                }
                 
         return {"status": "not_found", "message": f"ไม่พบข้อมูลแปลนสำหรับ: {q}"}
     except Exception as e:
