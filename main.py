@@ -1027,96 +1027,109 @@ def liff_page():
             function generateLetterImage(siteName, ticket) {{
                 const canvas = document.createElement('canvas');
                 canvas.width = 800;
-                canvas.height = 1050;
+                canvas.height = 1130;
                 const ctx = canvas.getContext('2d');
 
                 // พื้นหลังสีขาว
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                // หัวข้อบริษัท (มุมขวาบน)
+                // --- 1. หัวกระดาษ (โลโก้ W&W true) ---
+                ctx.beginPath();
+                ctx.arc(630, 40, 14, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#FF3D00';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
                 ctx.fillStyle = '#1A237E';
-                ctx.font = 'bold 22px sans-serif';
+                ctx.font = 'bold 24px sans-serif';
                 ctx.textAlign = 'right';
-                ctx.fillText('Wire & Wireless Co., Ltd.', 740, 45);
+                ctx.fillText('W&W', 695, 47);
 
-                // เลขที่เอกสาร (มุมซ้ายบน)
-                ctx.fillStyle = '#000000';
-                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#E50914';
+                ctx.font = 'bold 26px sans-serif';
+                ctx.fillText('true', 745, 47);
+
+                // --- 2. เนื้อหาหนังสือขออนุญาต ---
                 ctx.textAlign = 'left';
-                ctx.fillText(`เลขที่ TICC/BMA/PC${{ticket}}/2026`, 60, 60);
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 15px sans-serif';
+                
+                let startY = 110;
+                ctx.fillText('เรื่อง  ขออนุญาตเข้าปฏิบัติงานตรวจสอบสัญญาณอินเทอร์เน็ตและอุปกรณ์ Wi-Fi ของ True', 60, startY);
+                startY += 35;
+                ctx.fillText(`เรียน เจ้าหน้าที่อาคาร ${{siteName}}`, 60, startY);
+                
+                startY += 40;
+                ctx.font = '14px sans-serif';
+                ctx.fillText('        เนื่องด้วย บริษัท ทรู อินเทอร์เน็ต คอร์ปอเรชั่น จำกัด (“บริษัทฯ”) ผู้ได้รับใบอนุญาตประกอบ', 60, startY);
+                startY += 26;
+                ctx.fillText('กิจการโทรคมนาคมแบบที่ 3', 60, startY);
+                
+                startY += 35;
+                ctx.fillText('        จากคณะกรรมการกิจการกระจายเสียง กิจการโทรทัศน์ และกิจการโทรคมนาคมแห่งชาติ (กสทช.)', 60, startY);
+                startY += 26;
+                ctx.fillText('ในการให้บริการสื่อสารโทรคมนาคม มีความประสงค์ขออนุญาตเข้าดำเนินการตรวจสอบสัญญาณ WIFI', 60, startY);
+                startY += 26;
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText(`TRUE ณ ${{siteName}} โดยมีกำหนดการปฏิบัติงานดังต่อไปนี้`, 60, startY);
 
-                // วันที่ยื่นเอกสาร (ใช้วันปัจจุบัน)
+                // คำนวณวันที่เข้าดำเนินการ (บวกเพิ่มไป 7 วันจากวันปัจจุบัน)
                 const now = new Date();
-                const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-                let dateStr = `${{now.getDate()}} ${{thaiMonths[now.getMonth()]}} ${{now.getFullYear() + 543}}`;
-
-                // วันที่เข้าดำเนินการ (บวกเพิ่มไป 7 วัน)
                 const targetDate = new Date();
                 targetDate.setDate(now.getDate() + 7);
-                let targetDateStr = `${{targetDate.getDate()}} ${{thaiMonths[targetDate.getMonth()]}} ${{targetDate.getFullYear() + 543}} 10:00:00`;
+                const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+                let targetDateStr = `วันที่ ${{targetDate.getDate()}} ${{thaiMonths[targetDate.getMonth()]}} ${{targetDate.getFullYear() + 543}}`;
 
-                ctx.textAlign = 'right';
-                ctx.fillText(dateStr, 740, 100);
-
-                // เนื้อหาจดหมาย
-                ctx.textAlign = 'left';
-                ctx.font = '15px sans-serif';
-                
-                let startY = 160;
-                ctx.fillText('เรื่อง  ขออนุญาตตรวจสอบอุปกรณ์ WIFI_TRUE', 60, startY);
-                startY += 40;
-                ctx.fillText(`เรียน  เจ้าหน้าที่ ${{siteName}}`, 60, startY);
-                
-                startY += 50;
-                let bodyText = [
-                    'เนื่องด้วยบริษัท บริษัท ทรู อินเทอร์เน็ต คอร์ปอเรชั่น (บริษัทฯ) ซึ่งเป็นผู้ได้รับใบอนุญาตประกอบกิจการ',
-                    'โทรคมนาคม แบบที่ 3',
-                    'จากคณะกรรมการกิจการ โทรคมนาคมแห่งชาติ ในการให้บริการสื่อสารโทรคมนาคม มีความประสงค์',
-                    'จะขออนุญาต ตรวจสอบอุปกรณ์ WIFI_TRUE เพื่อซ่อมบำรุงอุปกรณ์ ให้กับลูกค้า TRUE',
-                    `โดยจะเข้าตรวจสอบอยู่บริเวณ ${{siteName}}`
-                ];
-
-                bodyText.forEach(line => {{
-                    ctx.fillText(line, 60, startY);
-                    startY += 28;
-                }});
-
-                startY += 20;
-                ctx.fillText(`วันที่เข้าดำเนินการ ${{targetDateStr}}`, 60, startY);
-
-                startY += 45;
-                ctx.fillText('รายชื่อผู้ดำเนินงาน', 60, startY);
-
+                // --- 3. ตารางที่ 1: กำหนดการปฏิบัติงาน ---
                 startY += 30;
-                let workers = [
-                    '1. คุณกำพล สินชัย Mobile: 082-993-5011',
-                    '2. คุณภูวนัย โสประดิษฐ์ Mobile: 082-069-6454',
-                    '3. คุณวิทยา เสาโมก Mobile: 088-983-0070'
-                ];
+                drawTable(ctx, 60, startY, [
+                    {{ col1: "ลำดับ", col2: "สถานที่ปฏิบัติงาน", col3: "วันที่เข้าดำเนินการ", col4: "เวลาปฏิบัติงาน" }},
+                    {{ col1: "1.", col2: siteName, col3: targetDateStr, col4: "10.00-16.00 น." }}
+                ], [50, 240, 240, 150]);
 
-                workers.forEach(w => {{
-                    ctx.fillText(w, 60, startY);
-                    startY += 25;
-                }});
+                // --- 4. ตารางที่ 2: รายชื่อผู้ประสานงาน (รวม 3 ท่าน) ---
+                startY += 120;
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText('รายชื่อผู้ประสานงานดังนี้', 60, startY);
+                
+                startY += 15;
+                drawTable(ctx, 60, startY, [
+                    {{ col1: "ลำดับ", col2: "ชื่อ-นามสกุล", col3: "เบอร์โทรศัพท์", col4: "อีเมล" }},
+                    {{ col1: "1.", col2: "คุณกำพล สินชัย", col3: "082-993-5011", col4: "-" }},
+                    {{ col1: "2.", col2: "คุณภูวนัย โสประดิษฐ์", col3: "082-069-6454", col4: "-" }},
+                    {{ col1: "3.", col2: "คุณวิทยา เสาโมก", col3: "088-983-0070", col4: "-" }}
+                ], [50, 240, 200, 190]);
 
-                startY += 30;
-                let closingText = [
-                    'จึงเรียนมาเพื่อโปรดพิจารณาอนุญาตให้บริษัทฯดำเนินการดังกล่าว',
-                    'โดยบริษัทฯหวังเป็นอย่างยิ่งว่าจะได้รับความร่วมมือด้วยดี'
-                ];
-                closingText.forEach(line => {{
-                    ctx.fillText(line, 60, startY);
-                    startY += 28;
-                }});
+                // --- 5. คำลงท้าย ---
+                startY += 160;
+                ctx.font = '14px sans-serif';
+                ctx.fillText('        จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติให้บริษัทฯ เข้าดำเนินการดังกล่าว บริษัทฯ หวังเป็นอย่างยิ่งว่า', 60, startY);
+                startY += 26;
+                ctx.fillText('จะได้รับความอนุเคราะห์และความร่วมมือจากท่านด้วยดี และขอขอบพระคุณมา ณ โอกาสนี้', 60, startY);
 
-                // ส่วนลงชื่อผู้จัดการ (มุมขวาล่าง)
-                startY += 60;
-                ctx.textAlign = 'right';
-                ctx.fillText('นาย นฤนาท สมภูมิ', 740, startY);
-                ctx.fillText('Manager', 740, startY + 22);
-                ctx.fillText('Dep. BMA East', 740, startY + 44);
-                ctx.fillText('Mobile: 0820054570', 740, startY + 66);
+                // --- 6. ลายเซ็นต์ / ผู้ลงนาม ---
+                startY += 55;
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText('ขอแสดงความนับถือ', 580, startY);
+                
+                startY += 35;
+                ctx.fillText('นาย นฤนาท สมภูมิ', 580, startY);
+                
+                startY += 24;
+                ctx.font = '14px sans-serif';
+                ctx.fillText('Mr. Naruenat Sompum', 580, startY);
+                startY += 22;
+                ctx.fillText('Manager', 580, startY);
+                startY += 22;
+                ctx.fillText('Regional Business Management - BMA EAST', 580, startY);
+                startY += 22;
+                ctx.fillText('B2B Service & Maintenance', 580, startY);
+                startY += 22;
+                ctx.fillText('เบอร์โทรศัพท์: 082-005-4570', 580, startY);
+                startY += 22;
+                ctx.fillText('อีเมล: Naruenat.Som@ww.co.th', 580, startY);
 
                 let dataUrl = canvas.toDataURL('image/png');
 
@@ -1128,14 +1141,14 @@ def liff_page():
                 modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:15px; box-sizing:border-box;';
 
                 modal.innerHTML = `
-                    <div style="background:#1C1C1E; width:100%; max-width:450px; border-radius:12px; padding:15px; display:flex; flex-direction:column; align-items:center; border:1px solid #333; max-height:90vh;">
+                    <div style="background:#1C1C1E; width:100%; max-width:480px; border-radius:12px; padding:15px; display:flex; flex-direction:column; align-items:center; border:1px solid #333; max-height:90vh;">
                         <div style="color:#00E676; font-size:13px; font-weight:bold; margin-bottom:10px; text-align:center;">
-                            💡 กดปุ่มด้านล่างเพื่อบันทึกรูปภาพลงมือถือ
+                            💡 กดปุ่มด้านล่างเพื่อบันทึกรูปจดหมาย Work Permit
                         </div>
                         <div style="overflow-y:auto; width:100%; max-height:55vh; margin-bottom:12px; text-align:center;">
                             <img src="${{dataUrl}}" style="max-width:100%; height:auto; border-radius:6px; border:1px solid #444;" />
                         </div>
-                        <a href="${{dataUrl}}" download="Permission_${{ticket}}.png" style="width:100%; padding:10px; background-color:#00E676; color:#000; border:none; border-radius:6px; font-weight:bold; font-size:14px; text-align:center; text-decoration:none; display:block; margin-bottom:8px;">
+                        <a href="${{dataUrl}}" download="WorkPermit_${{ticket}}.png" style="width:100%; padding:10px; background-color:#00E676; color:#000; border:none; border-radius:6px; font-weight:bold; font-size:14px; text-align:center; text-decoration:none; display:block; margin-bottom:8px;">
                             📥 บันทึกรูปภาพลงเครื่อง
                         </a>
                         <button onclick="document.getElementById('letterModal').remove()" style="width:100%; padding:10px; background-color:#E50914; color:#FFF; border:none; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer;">
@@ -1144,6 +1157,41 @@ def liff_page():
                     </div>
                 `;
                 document.body.appendChild(modal);
+            }}
+
+            // ฟังก์ชันเสริมสำหรับวาดตาราง
+            function drawTable(ctx, x, y, rows, colWidths) {{
+                let currentY = y;
+                const rowHeight = 32;
+
+                rows.forEach((row, rowIndex) => {{
+                    let currentX = x;
+                    const keys = Object.keys(row);
+
+                    if (rowIndex === 0) {{
+                        ctx.fillStyle = '#F5F5F5';
+                        ctx.fillRect(x, currentY, colWidths.reduce((a, b) => a + b, 0), rowHeight);
+                    }}
+
+                    keys.forEach((key, colIndex) => {{
+                        const width = colWidths[colIndex];
+
+                        ctx.strokeStyle = '#CCCCCC';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(currentX, currentY, width, rowHeight);
+
+                        ctx.fillStyle = '#000000';
+                        ctx.font = rowIndex === 0 ? 'bold 13px sans-serif' : '13px sans-serif';
+                        ctx.textAlign = (colIndex === 0) ? 'center' : 'left';
+                        
+                        let textX = (colIndex === 0) ? currentX + (width / 2) : currentX + 10;
+                        ctx.fillText(row[key], textX, currentY + 20);
+
+                        currentX += width;
+                    }});
+
+                    currentY += rowHeight;
+                }});
             }}
 
             function copyTextToClipboard(text, onSuccess, onError) {{
